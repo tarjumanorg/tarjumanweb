@@ -1,215 +1,5 @@
 ---
 
-`src\pages\dashboard.astro`:
-```
----
-// src/pages/dashboard.astro
-import Layout from "../layout/Layout.astro";
-import { supabase } from "../lib/supabase";
-import Reviews from "../components/Reviews.astro";
-import type { GuestbookEntry } from "../types/types";
-
-const { email } = Astro.locals;
-
-let reviews: GuestbookEntry[] = [];
-let fetchError: string | null = null;
-
-try {
-  const { data, error } = await supabase
-    .from("guestbook")
-    .select("name, message")
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    throw error;
-  }
-  reviews = data as GuestbookEntry[];
-
-} catch (e: any) {
-   fetchError = `Failed to load reviews: ${e.message}`;
-   console.error("Error fetching reviews:", e);
-}
----
-
-<Layout title="Dashboard">
-  <section>
-    <p>
-      Logged in as: <strong>{email}</strong>
-    </p>
-    <p>
-      This is a protected page. You can only see this if you are logged in.
-    </p>
-    <a
-      href="/api/auth/signout"
-      >Sign out</a
-    >
-
-    {fetchError && <p>{fetchError}</p>}
-
-    <Reviews reviews={reviews} />
-  </section>
-</Layout>
-```
-
----
-
-`src\env.d.ts`:
-```
-declare namespace App {
-  interface Locals {
-    email: string;
-  }
-}
-interface ImportMetaEnv {
-  readonly SUPABASE_URL: string
-  readonly SUPABASE_ANON_KEY: string
-}
-
-interface ImportMeta {
-  readonly env: ImportMetaEnv
-}
-```
-
----
-
-`src\pages\api\guestbook.ts`:
-```
-import type { APIRoute } from "astro";
-import { supabase } from "../../lib/supabase";
-
-export const GET: APIRoute = async () => {
-  const { data, error } = await supabase
-    .from("guestbook")
-    .select("*")
-    .order("created_at", { ascending: true });
-
-  if (error) {
-    return new Response(
-      JSON.stringify({
-        error: error.message,
-      }),
-      { status: 500 },
-    );
-  }
-  
-  return new Response(JSON.stringify(data));
-};
-
-export const POST: APIRoute = async ({ request }) => {
-  const { name, message } = await request.json();
-  const { data, error } = await supabase
-    .from("guestbook")
-    .insert({ name, message })
-    .select();
-
-  if (error) {
-    return new Response(
-      JSON.stringify({
-        error: error.message,
-      }),
-      { status: 500 },
-    );
-  }
-
-  return new Response(JSON.stringify(data));
-};
-
-```
-
----
-
-`src\pages\api\auth\signin.ts`:
-```
-import type { APIRoute } from "astro";
-import { supabase } from "../../../lib/supabase";
-import type { Provider } from "@supabase/supabase-js";
-
-export const POST: APIRoute = async ({ request, cookies, redirect }) => {
-  const formData = await request.formData();
-  const email = formData.get("email")?.toString();
-  const password = formData.get("password")?.toString();
-  const provider = formData.get("provider")?.toString();
-
-  if (provider) {
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: provider as Provider,
-      options: {
-        redirectTo: import.meta.env.DEV
-          ? "http://localhost:4321/api/auth/callback"
-          : "https://tarjuman.netlify.app/api/auth/callback",
-      },
-    });
-
-    if (error) {
-      return new Response(error.message, { status: 500 });
-    }
-
-    return redirect(data.url);
-  }
-
-  if (!email || !password) {
-    return new Response("Email and password are required", { status: 400 });
-  }
-
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-  });
-
-  if (error) {
-    return new Response(error.message, { status: 500 });
-  }
-
-  const { access_token, refresh_token } = data.session;
-  cookies.set("sb-access-token", access_token, {
-    sameSite: "strict",
-    path: "/",
-    secure: true,
-  });
-  cookies.set("sb-refresh-token", refresh_token, {
-    sameSite: "strict",
-    path: "/",
-    secure: true,
-  });
-
-  return redirect("/dashboard");
-};
-```
-
----
-
-`src\lib\supabase.ts`:
-```
-import { createClient } from "@supabase/supabase-js";
-
-export const supabase = createClient(
-  import.meta.env.SUPABASE_URL,
-  import.meta.env.SUPABASE_ANON_KEY,
-  {
-    auth: {
-      flowType: "pkce",
-      autoRefreshToken: true,
-      detectSessionInUrl: false,
-      persistSession: true,
-    },
-  },
-);
-
-```
-
----
-
-`src\types\types.ts`:
-```
-// src/types/types.ts
-export interface GuestbookEntry {
-    name: string;
-    message: string;
-  }
-```
-
----
-
 `src\middleware\index.ts`:
 ```
 // src/middleware/index.ts
@@ -357,6 +147,110 @@ export const onRequest = defineMiddleware(
 
 ---
 
+`src\pages\dashboard.astro`:
+```
+---
+// src/pages/dashboard.astro
+import Layout from "../layout/Layout.astro";
+import { supabase } from "../lib/supabase";
+import Reviews from "../components/Reviews.astro";
+import type { GuestbookEntry } from "../types/types";
+
+const { email } = Astro.locals;
+
+let reviews: GuestbookEntry[] = [];
+let fetchError: string | null = null;
+
+try {
+  const { data, error } = await supabase
+    .from("guestbook")
+    .select("name, message")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    throw error;
+  }
+  reviews = data as GuestbookEntry[];
+
+} catch (e: any) {
+   fetchError = `Failed to load reviews: ${e.message}`;
+   console.error("Error fetching reviews:", e);
+}
+---
+
+<Layout title="Dashboard">
+  <section>
+    <p>
+      Logged in as: <strong>{email}</strong>
+    </p>
+    <p>
+      This is a protected page. You can only see this if you are logged in.
+    </p>
+    <a
+      href="/api/auth/signout"
+      >Sign out</a
+    >
+
+    {fetchError && <p>{fetchError}</p>}
+
+    <Reviews reviews={reviews} />
+  </section>
+</Layout>
+```
+
+---
+
+`src\lib\supabase.ts`:
+```
+import { createClient } from "@supabase/supabase-js";
+
+export const supabase = createClient(
+  import.meta.env.SUPABASE_URL,
+  import.meta.env.SUPABASE_ANON_KEY,
+  {
+    auth: {
+      flowType: "pkce",
+      autoRefreshToken: true,
+      detectSessionInUrl: false,
+      persistSession: true,
+    },
+  },
+);
+
+```
+
+---
+
+`src\pages\api\auth\register.ts`:
+```
+import type { APIRoute } from "astro";
+import { supabase } from "../../../lib/supabase";
+
+export const POST: APIRoute = async ({ request, redirect }) => {
+  const formData = await request.formData();
+  const email = formData.get("email")?.toString();
+  const password = formData.get("password")?.toString();
+
+  if (!email || !password) {
+    return new Response("Email and password are required", { status: 400 });
+  }
+
+  const { error } = await supabase.auth.signUp({
+    email,
+    password,
+  });
+
+  if (error) {
+    return new Response(error.message, { status: 500 });
+  }
+
+  return redirect("/signin");
+};
+
+```
+
+---
+
 `src\pages\index.astro`:
 ```
 ---
@@ -389,158 +283,28 @@ const title = "Supabase and Astro Demo";
 
 ---
 
-`src\layout\Layout.astro`:
+`astro.config.mjs`:
 ```
----
-interface Props {
-  title: string;
-}
+// @ts-check
+import { defineConfig } from 'astro/config';
+import netlify from '@astrojs/netlify';
 
-const description = "Astro and Supabase demo app";
-const { title } = Astro.props;
-const ogImageURL = new URL("hero.png", Astro.site).href;
-const canonicalURL = new URL(Astro.url).href;
----
-
-<html lang="en" class="h-full w-full">
-  <head>
-    <title>{title}</title>
-    <meta charset="utf-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width" />
-    <meta name="generator" content={Astro.generator} />
-    <meta name="description" content={description} />
-    <meta property="twitter:image" content={ogImageURL} />
-    <meta property="twitter:card" content="summary_large_image" />
-    <meta property="twitter:title" content={title} />
-    <meta property="twitter:description" content={description} />
-    <meta property="og:image" content={ogImageURL} />
-    <meta property="og:title" content={title} />
-    <meta property="og:description" content={description} />
-    <meta property="og:url" content={canonicalURL} />
-  </head>
-  <body
-    class="flex flex-col h-full w-full dark:bg-zinc-900 bg-zinc-50 dark:text-zinc-100"
-  >
-    <nav class="border-b bg-white dark:bg-zinc-800 dark:border-zinc-700">
-      <div
-        class="flex items-baseline justify-end sm:justify-between p-4 max-w-screen-xl mx-auto"
-      >
-        <a href="/" class="hidden sm:block font-semibold dark:text-white"
-          >Astro</a
-        >
-        <div>
-          <ul class="font-medium flex items-baseline gap-8">
-            <li>
-              <a
-                href="/dashboard"
-                class="block text-zinc-900 dark:text-gray-200">Dashboard</a
-              >
-            </li>
-            <li>
-              <a href="/register" class="block text-zinc-900 dark:text-gray-200"
-                >Register</a
-              >
-            </li>
-            <li>
-              <a href="/signin" class="block text-zinc-900 dark:text-gray-200"
-                >Sign in</a
-              >
-            </li>
-          </ul>
-        </div>
-      </div>
-    </nav>
-    <slot />
-  </body>
-</html>
-
+export default defineConfig({
+  site: 'https://tarjuman.netlify.app',
+  output: 'server',
+  adapter: netlify(),
+});
 ```
 
 ---
 
-`src\components\Reviews.astro`:
+`src\types\types.ts`:
 ```
----
-import type { GuestbookEntry } from "../types/types"; // Adjust path if needed
-
-// Define the props the component expects
-interface Props {
-  reviews: GuestbookEntry[];
-}
-
-// Get the reviews from the props passed by the parent page
-const { reviews } = Astro.props;
-
-// No need to fetch data or handle fetch errors here anymore
----
-
-<div>
-  {/* Form remains the same, using standard HTML submission */}
-  <form
-    action="/api/guestbook"
-    method="post"
-    class="mb-8 p-4 border rounded dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800"
-  >
-    <h3 class="text-lg font-semibold mb-3 dark:text-white">Leave a message</h3>
-    <div class="mb-3">
-      <label
-        for="name"
-        class="block mb-1 text-sm font-medium text-zinc-700 dark:text-zinc-300"
-      >
-        Name
-      </label>
-      <input
-        id="name"
-        type="text"
-        placeholder="Your Name"
-        required
-        name="name"
-        class="w-full p-2 border rounded dark:bg-zinc-700 dark:border-zinc-600 dark:text-zinc-100 focus:ring-blue-500 focus:border-blue-500"
-      />
-    </div>
-    <div class="mb-4">
-      <label
-        for="message"
-        class="block mb-1 text-sm font-medium text-zinc-700 dark:text-zinc-300"
-      >
-        Message
-      </label>
-      <input
-        id="message"
-        type="text"
-        placeholder="A friendly message..."
-        required
-        name="message"
-        class="w-full p-2 border rounded dark:bg-zinc-700 dark:border-zinc-600 dark:text-zinc-100 focus:ring-blue-500 focus:border-blue-500"
-      />
-    </div>
-    <button
-      type="submit"
-      class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors duration-200"
-    >
-      Submit
-    </button>
-  </form>
-
-  {/* Display the reviews passed via props */}
-  <h3 class="text-lg font-semibold mb-3 dark:text-white">Guestbook Entries</h3>
-  {reviews.length > 0 ? (
-     <ul class="space-y-4">
-      {reviews.map((review) => (
-        <li class="p-4 border rounded dark:border-zinc-700 bg-white dark:bg-zinc-800 shadow-sm">
-          <p class="font-semibold text-zinc-800 dark:text-zinc-200">
-            {review.name}
-          </p>
-          <p class="text-zinc-600 dark:text-zinc-400 mt-1">{review.message}</p>
-        </li>
-      ))}
-    </ul>
-  ) : (
-    <p class="text-zinc-500 dark:text-zinc-400">No reviews yet. Be the first!</p>
-  )}
-
-</div>
+// src/types/types.ts
+export interface GuestbookEntry {
+    name: string;
+    message: string;
+  }
 ```
 
 ---
@@ -617,6 +381,450 @@ const title = "Sign in";
         >
            Sign in with Google
         </button>
+      </form>
+    </section>
+  </main>
+</Layout>
+
+```
+
+---
+
+`src\components\Reviews.astro`:
+```
+---
+// src/components/Reviews.astro
+import type { GuestbookEntry } from "../types/types";
+
+interface Props {
+  reviews: GuestbookEntry[];
+}
+
+const { reviews } = Astro.props;
+---
+
+<div>
+  <form
+    id="guestbook-form"
+    method="post"
+    action="/api/guestbook"
+  >
+    <h3 >Leave a message</h3>
+
+
+    <div id="form-status"></div>
+
+    <div >
+      <label
+        for="name"
+      >
+        Name
+      </label>
+      <input
+        id="name"
+        type="text"
+        placeholder="Your Name"
+        required
+        name="name"
+            />
+    </div>
+    <div >
+      <label
+        for="message"
+              >
+        Message
+      </label>
+
+      <input
+        id="message"
+        type="text"
+        placeholder="A friendly message..."
+        required
+        name="message"
+           />
+    </div>
+    <button
+      id="submit-button"
+      type="submit"
+        >
+      Submit
+    </button>
+  </form>
+
+  <h3 class="text-lg font-semibold mb-3 dark:text-white">Guestbook Entries</h3>
+   <div id="reviews-list">
+    {reviews.length > 0 ? (
+        <ul class="space-y-4">
+        {reviews.map((review) => (
+            <li>
+            <p>
+
+                {review.name}
+
+            </p>
+            <p>{review.message}</p>
+            </li>
+        ))}
+        </ul>
+    ) : (
+        <p>No reviews yet. Be the first!</p>
+    )}
+   </div>
+</div>
+
+<script>
+  const form = document.getElementById('guestbook-form') as HTMLFormElement;
+  const nameInput = document.getElementById('name') as HTMLInputElement;
+  const messageInput = document.getElementById('message') as HTMLInputElement;
+  const statusDiv = document.getElementById('form-status');
+  const submitButton = document.getElementById('submit-button') as HTMLButtonElement;
+
+  if (form && nameInput && messageInput && statusDiv && submitButton) {
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+
+      statusDiv.textContent = '';
+      submitButton.disabled = true;
+      submitButton.textContent = 'Submitting...';
+
+      const name = nameInput.value;
+      const message = messageInput.value;
+
+      const payload = JSON.stringify({ name, message });
+
+      try {
+        const response = await fetch(form.action, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: payload,
+        });
+
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || `HTTP error! Status: ${response.status}`);
+        }
+
+        statusDiv.textContent = 'Message submitted successfully!';
+        form.reset();
+
+      } catch (error: any) {
+        console.error('Submission error:', error);
+        statusDiv.textContent = `Error: ${error.message || 'Could not submit message.'}`;
+        statusDiv.classList.add('text-red-600', 'dark:text-red-400');
+
+      } finally {
+        submitButton.disabled = false;
+        submitButton.textContent = 'Submit';
+      }
+    });
+  } else {
+    console.error('Could not find all required form elements for guestbook submission script.');
+  }
+</script>
+```
+
+---
+
+`tsconfig.json`:
+```
+{
+  "extends": "astro/tsconfigs/strict",
+  "include": [".astro/types.d.ts", "**/*"],
+  "exclude": ["dist"]
+}
+
+```
+
+---
+
+`src\pages\api\guestbook.ts`:
+```
+import type { APIRoute } from "astro";
+import { supabase } from "../../lib/supabase";
+
+export const GET: APIRoute = async () => {
+  const { data, error } = await supabase
+    .from("guestbook")
+    .select("*")
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    return new Response(
+      JSON.stringify({
+        error: error.message,
+      }),
+      { status: 500 },
+    );
+  }
+
+  return new Response(JSON.stringify(data));
+};
+
+export const POST: APIRoute = async ({ request }) => {
+  const { name, message } = await request.json();
+  const { data, error } = await supabase
+    .from("guestbook")
+    .insert({ name, message })
+    .select();
+
+  if (error) {
+    return new Response(
+      JSON.stringify({
+        error: error.message,
+      }),
+      { status: 500 },
+    );
+  }
+
+  return new Response(JSON.stringify(data));
+};
+
+```
+
+---
+
+`src\pages\api\auth\callback.ts`:
+```
+import type { APIRoute } from "astro";
+import { supabase } from "../../../lib/supabase";
+
+export const GET: APIRoute = async ({ url, cookies, redirect }) => {
+  const authCode = url.searchParams.get("code");
+
+  if (!authCode) {
+    return new Response("No code provided", { status: 400 });
+  }
+
+  const { data, error } = await supabase.auth.exchangeCodeForSession(authCode);
+
+  if (error) {
+    return new Response(error.message, { status: 500 });
+  }
+
+  const { access_token, refresh_token } = data.session;
+
+  cookies.set("sb-access-token", access_token, {
+    path: "/",
+    secure: true,
+    httpOnly: true,
+  });
+  cookies.set("sb-refresh-token", refresh_token, {
+    path: "/",
+    secure: true,
+    httpOnly: true,
+  });
+  return redirect("/dashboard");
+};
+
+```
+
+---
+
+`src\env.d.ts`:
+```
+declare namespace App {
+  interface Locals {
+    email: string;
+  }
+}
+```
+
+---
+
+`src\pages\api\auth\signin.ts`:
+```
+import type { APIRoute } from "astro";
+import { supabase } from "../../../lib/supabase";
+import type { Provider } from "@supabase/supabase-js";
+
+// It's slightly cleaner to define the path separately if needed elsewhere,
+// but defining it inline is also fine here.
+const OAUTH_CALLBACK_PATH = "/api/auth/callback";
+
+export const POST: APIRoute = async ({ request, cookies, redirect, url }) => { // Destructure 'url' from context
+  const formData = await request.formData();
+  const email = formData.get("email")?.toString();
+  const password = formData.get("password")?.toString();
+  const provider = formData.get("provider")?.toString();
+
+  // Construct the redirect URL dynamically using the request's origin
+  const redirectUrl = `${url.origin}${OAUTH_CALLBACK_PATH}`;
+
+  if (provider) {
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: provider as Provider,
+      options: {
+        // Use the dynamically constructed URL
+        redirectTo: redirectUrl,
+      },
+    });
+
+    if (error) {
+      return new Response(error.message, { status: 500 });
+    }
+
+    return redirect(data.url); // Redirect user to the provider's auth page
+  }
+
+  // --- Email/Password Logic remains the same ---
+  if (!email || !password) {
+    return new Response("Email and password are required", { status: 400 });
+  }
+
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+  });
+
+  if (error) {
+    return new Response(error.message, { status: 500 });
+  }
+
+  const { access_token, refresh_token } = data.session;
+  cookies.set("sb-access-token", access_token, {
+    sameSite: "strict",
+    path: "/",
+    secure: true, // Keep secure: true (important for production)
+    httpOnly: true, // Recommended for security
+  });
+  cookies.set("sb-refresh-token", refresh_token, {
+    sameSite: "strict",
+    path: "/",
+    secure: true, // Keep secure: true
+    httpOnly: true, // Essential for refresh token security
+  });
+
+  return redirect("/dashboard");
+};
+```
+
+---
+
+`src\pages\api\auth\signout.ts`:
+```
+import type { APIRoute } from "astro";
+
+export const GET: APIRoute = async ({ cookies, redirect }) => {
+  cookies.delete("sb-access-token", { path: "/" });
+  cookies.delete("sb-refresh-token", { path: "/" });
+  return redirect("/signin");
+};
+
+```
+
+---
+
+`src\layout\Layout.astro`:
+```
+---
+interface Props {
+  title: string;
+}
+
+const description = "Astro and Supabase demo app";
+const { title } = Astro.props;
+const ogImageURL = new URL("hero.png", Astro.site).href;
+const canonicalURL = new URL(Astro.url).href;
+---
+
+<html lang="en" class="h-full w-full">
+  <head>
+    <title>{title}</title>
+    <meta charset="utf-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="generator" content={Astro.generator} />
+    <meta name="description" content={description} />
+    <meta property="twitter:image" content={ogImageURL} />
+    <meta property="twitter:card" content="summary_large_image" />
+    <meta property="twitter:title" content={title} />
+    <meta property="twitter:description" content={description} />
+    <meta property="og:image" content={ogImageURL} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonicalURL} />
+  </head>
+  <body>
+    <nav>
+      <div>
+        <a href="/">Astro</a>
+        <div>
+          <ul>
+            <li>
+              <a href="/dashboard"> </a>
+              <li>
+                <a href="/register">Register</a>
+              </li>
+              <li>
+                <a href="/signin">Sign in</a>
+              </li>
+            </li>
+          </ul>
+        </div>
+      </div>
+      <slot />
+    </nav>
+  </body>
+</html>
+
+```
+
+---
+
+`src\pages\register.astro`:
+```
+---
+import Layout from "../layout/Layout.astro";
+const title = "Register";
+---
+
+<Layout title={title}>
+  <main>
+    <section>
+      <h1>
+        {title}
+      </h1>
+      <p>
+        Already have an account? <a
+          href="/signin"
+          >Sign in</a
+        >
+      </p>
+      <form
+        action="/api/auth/register"
+        method="post"
+      >
+        <div>
+          <label
+            for="email"
+            >Email</label
+          >
+          <input
+            id="email"
+            type="email"
+            name="email"
+              />
+        </div>
+        <div >
+          <label
+            for="password"
+            >Password</label
+          >
+          <input
+            id="password"
+            type="password"
+            name="password"
+               />
+        </div>
+        <button
+          type="submit"
+             >Register</button
+        >
       </form>
     </section>
   </main>

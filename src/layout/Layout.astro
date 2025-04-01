@@ -26,38 +26,25 @@ const canonicalURL = new URL(Astro.url).href;
     <meta property="og:description" content={description} />
     <meta property="og:url" content={canonicalURL} />
   </head>
-  <body
-    class="flex flex-col h-full w-full dark:bg-zinc-900 bg-zinc-50 dark:text-zinc-100"
-  >
-    <nav class="border-b bg-white dark:bg-zinc-800 dark:border-zinc-700">
-      <div
-        class="flex items-baseline justify-end sm:justify-between p-4 max-w-screen-xl mx-auto"
-      >
-        <a href="/" class="hidden sm:block font-semibold dark:text-white"
-          >Astro</a
-        >
+  <body>
+    <nav>
+      <div>
+        <a href="/">Astro</a>
         <div>
-          <ul class="font-medium flex items-baseline gap-8">
+          <ul>
             <li>
-              <a
-                href="/dashboard"
-                class="block text-zinc-900 dark:text-gray-200">Dashboard</a
-              >
-            </li>
-            <li>
-              <a href="/register" class="block text-zinc-900 dark:text-gray-200"
-                >Register</a
-              >
-            </li>
-            <li>
-              <a href="/signin" class="block text-zinc-900 dark:text-gray-200"
-                >Sign in</a
-              >
+              <a href="/dashboard"> </a>
+              <li>
+                <a href="/register">Register</a>
+              </li>
+              <li>
+                <a href="/signin">Sign in</a>
+              </li>
             </li>
           </ul>
         </div>
       </div>
+      <slot />
     </nav>
-    <slot />
   </body>
 </html>
