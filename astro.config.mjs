@@ -1,5 +1,11 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
+import netlify from '@astrojs/netlify';
 
-// https://astro.build/config
-export default defineConfig({});
+export default defineConfig({
+  site: 'https://tarjuman.netlify.app',
+  output: 'server',
+  adapter: netlify({
+    edgeMiddleware: true,
+  }),
+});

@@ -1,11 +1,25 @@
 ---
-import Welcome from '../components/Welcome.astro';
-import Layout from '../layouts/Layout.astro';
-
-// Welcome to Astro! Wondering what to do next? Check out the Astro documentation at https://docs.astro.build
-// Don't want to use any of this? Delete everything in this file, the `assets`, `components`, and `layouts` directories, and start fresh.
+import Layout from "../layout/Layout.astro";
+import Supabase from "../icons/Supabase.astro";
+import AstroIcon from "../icons/AstroIcon.astro";
+export const prerender = true;
+const title = "Supabase and Astro Demo";
 ---
 
-<Layout>
-	<Welcome />
+<Layout title={title}>
+  <main>
+    <h1>{title}</h1>
+    <ul>
+      <li
+      >
+        <AstroIcon />
+      </li>
+       &plus;
+      <li
+      >
+        <Supabase />
+      </li>
+    </ul>
+    <p>This page was pre-rendered at build time</p>
+  </main>
 </Layout>

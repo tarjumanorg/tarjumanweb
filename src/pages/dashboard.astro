@@ -1,0 +1,47 @@
+---
+// src/pages/dashboard.astro
+import Layout from "../layout/Layout.astro";
+import { supabase } from "../lib/supabase";
+import Reviews from "../components/Reviews.astro";
+import type { GuestbookEntry } from "../types/types";
+
+const { email } = Astro.locals;
+
+let reviews: GuestbookEntry[] = [];
+let fetchError: string | null = null;
+
+try {
+  const { data, error } = await supabase
+    .from("guestbook")
+    .select("name, message")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    throw error;
+  }
+  reviews = data as GuestbookEntry[];
+
+} catch (e: any) {
+   fetchError = `Failed to load reviews: ${e.message}`;
+   console.error("Error fetching reviews:", e);
+}
+---
+
+<Layout title="Dashboard">
+  <section>
+    <p>
+      Logged in as: <strong>{email}</strong>
+    </p>
+    <p>
+      This is a protected page. You can only see this if you are logged in.
+    </p>
+    <a
+      href="/api/auth/signout"
+      >Sign out</a
+    >
+
+    {fetchError && <p>{fetchError}</p>}
+
+    <Reviews reviews={reviews} />
+  </section>
+</Layout>

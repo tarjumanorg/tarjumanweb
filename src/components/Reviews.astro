@@ -1,0 +1,131 @@
+---
+// src/components/Reviews.astro
+import type { GuestbookEntry } from "../types/types";
+
+interface Props {
+  reviews: GuestbookEntry[];
+}
+
+const { reviews } = Astro.props;
+---
+
+<div>
+  <form
+    id="guestbook-form"
+    method="post"
+    action="/api/guestbook"
+  >
+    <h3 >Leave a message</h3>
+
+
+    <div id="form-status"></div>
+
+    <div >
+      <label
+        for="name"
+      >
+        Name
+      </label>
+      <input
+        id="name"
+        type="text"
+        placeholder="Your Name"
+        required
+        name="name"
+            />
+    </div>
+    <div >
+      <label
+        for="message"
+              >
+        Message
+      </label>
+
+      <input
+        id="message"
+        type="text"
+        placeholder="A friendly message..."
+        required
+        name="message"
+           />
+    </div>
+    <button
+      id="submit-button"
+      type="submit"
+        >
+      Submit
+    </button>
+  </form>
+
+  <h3 class="text-lg font-semibold mb-3 dark:text-white">Guestbook Entries</h3>
+   <div id="reviews-list">
+    {reviews.length > 0 ? (
+        <ul class="space-y-4">
+        {reviews.map((review) => (
+            <li>
+            <p>
+                {review.name}
+            </p>
+            <p>{review.message}</p>
+            </li>
+        ))}
+        </ul>
+    ) : (
+        <p>No reviews yet. Be the first!</p>
+    )}
+   </div>
+</div>
+
+<script>
+  const form = document.getElementById('guestbook-form') as HTMLFormElement;
+  const nameInput = document.getElementById('name') as HTMLInputElement;
+  const messageInput = document.getElementById('message') as HTMLInputElement;
+  const statusDiv = document.getElementById('form-status');
+  const submitButton = document.getElementById('submit-button') as HTMLButtonElement;
+
+  if (form && nameInput && messageInput && statusDiv && submitButton) {
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+
+      statusDiv.textContent = '';
+      submitButton.disabled = true;
+      submitButton.textContent = 'Submitting...';
+
+      const name = nameInput.value;
+      const message = messageInput.value;
+
+      const payload = JSON.stringify({ name, message });
+
+      try {
+        const response = await fetch(form.action, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: payload,
+        });
+
+        const data = await response.json(); 
+
+        if (!response.ok) {
+          throw new Error(data.error || `HTTP error! Status: ${response.status}`);
+        }
+
+        statusDiv.textContent = 'Message submitted successfully!';
+        form.reset();
+
+      } catch (error: any) {
+        console.error('Submission error:', error);
+        statusDiv.textContent = `Error: ${error.message || 'Could not submit message.'}`;
+        statusDiv.classList.add('text-red-600', 'dark:text-red-400');
+
+      } finally {
+        submitButton.disabled = false;
+        submitButton.textContent = 'Submit';
+      }
+    });
+  } else {
+    console.error('Could not find all required form elements for guestbook submission script.');
+  }
+</script>
