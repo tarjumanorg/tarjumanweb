@@ -1,70 +1,24 @@
 ---
+// src/pages/signin.astro
 import Layout from "../layout/Layout.astro";
-const title = "Sign in";
+const title = "Sign In";
 ---
 
 <Layout title={title}>
-  <main >
-    <section >
-      <h1
-          >
-        {title}
-      </h1>
-      <p >
-        New to demo? <a
-          href="/register"
-            >Create an account</a
-        >
+  <main>
+    <section>
+      <h1>{title}</h1>
+      <p>
+        Use Google to sign in to your account.
       </p>
       <form
         action="/api/auth/signin"
         method="post"
-          >
-        <div class="grid grid-cols-1 gap-2">
-          <label
-            for="email"
-             >Email</label
-          >
-          <input
-            id="email"
-            type="email"
-            name="email"
-             />
-        </div>
-        <label
-          for="password"
-            >Password</label
-        >
-        <input
-          id="password"
-          type="password"
-          name="password"
-          />
-        <button
-          type="submit"
-            >Sign In</button
-        >
-      </form>
-      <hr  />
-      <p >
-        <span >Or with</span>
-      </p>
-      <form
-        action="/api/auth/signin"
-        method="post"
-        
       >
-        <button
-          value="github"
-          name="provider"
-          type="submit"
-           >
-           Sign in with GitHub</button
-        >
         <button
           value="google"
           name="provider"
-              type="submit"
+          type="submit"
         >
            Sign in with Google
         </button>

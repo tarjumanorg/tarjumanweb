@@ -75,7 +75,7 @@ export const onRequest = defineMiddleware(
         sameSite: "strict",
         path: "/",
         secure: true, // Keep secure: true for production
-        // httpOnly: true // Consider adding httpOnly for access token if not needed client-side
+        httpOnly: true // Consider adding httpOnly for access token if not needed client-side
       });
       cookies.set("sb-refresh-token", data?.session?.refresh_token!, {
         sameSite: "strict",

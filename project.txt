@@ -1,205 +1,5 @@
 ---
 
-`src\middleware\index.ts`:
-```
-// src/middleware/index.ts
-import { defineMiddleware } from "astro:middleware";
-import { supabase } from "../lib/supabase";
-// No need to import micromatch anymore
-
-// Define routes clearly
-// For simple paths, direct string comparison after normalization is often easiest
-const protectedPaths = ["/dashboard"];
-const redirectPaths = ["/signin", "/register"];
-const protectedAPIPaths = ["/api/guestbook"];
-
-// Helper function to check paths, handling optional trailing slash
-function matchesPath(pathname: string, pathsToCheck: string[]): boolean {
-  // Normalize pathname by removing trailing slash (if present)
-  const normalizedPathname = pathname.endsWith('/') && pathname.length > 1
-    ? pathname.slice(0, -1)
-    : pathname;
-  return pathsToCheck.includes(normalizedPathname);
-}
-
-// --- OR using URLPattern (slightly more overhead for this simple case, but good for complex patterns) ---
-/*
-const protectedPatterns = [
-  new URLPattern({ pathname: '/dashboard' }),
-  new URLPattern({ pathname: '/dashboard/' }) // Handle trailing slash explicitly
-];
-const redirectPatterns = [
-  new URLPattern({ pathname: '/signin' }),
-  new URLPattern({ pathname: '/signin/' }),
-  new URLPattern({ pathname: '/register' }),
-  new URLPattern({ pathname: '/register/' })
-];
-const protectedAPIPatterns = [
-    new URLPattern({ pathname: '/api/guestbook' }),
-    new URLPattern({ pathname: '/api/guestbook/' })
-];
-
-function matchesPattern(url: URL, patterns: URLPattern[]): boolean {
-    return patterns.some(pattern => pattern.test(url));
-}
-*/
-// --- End of URLPattern example ---
-
-
-export const onRequest = defineMiddleware(
-  async ({ locals, url, cookies, redirect }, next) => {
-
-    // Choose one method: matchesPath (simpler) or matchesPattern (URLPattern)
-    const isProtectedRoute = matchesPath(url.pathname, protectedPaths);
-    // const isProtectedRoute = matchesPattern(url, protectedPatterns); // URLPattern alternative
-
-    if (isProtectedRoute) {
-      const accessToken = cookies.get("sb-access-token");
-      const refreshToken = cookies.get("sb-refresh-token");
-
-      if (!accessToken || !refreshToken) {
-        return redirect("/signin");
-      }
-
-      // ... rest of your token validation logic ...
-      const { data, error } = await supabase.auth.setSession({
-        refresh_token: refreshToken.value,
-        access_token: accessToken.value,
-      });
-
-      if (error) {
-        // Clear potentially invalid cookies
-        cookies.delete("sb-access-token", { path: "/" });
-        cookies.delete("sb-refresh-token", { path: "/" });
-        return redirect("/signin");
-      }
-
-      locals.email = data.user?.email!;
-      cookies.set("sb-access-token", data?.session?.access_token!, {
-        sameSite: "strict",
-        path: "/",
-        secure: true, // Keep secure: true for production
-        // httpOnly: true // Consider adding httpOnly for access token if not needed client-side
-      });
-      cookies.set("sb-refresh-token", data?.session?.refresh_token!, {
-        sameSite: "strict",
-        path: "/",
-        secure: true, // Keep secure: true for production
-        httpOnly: true, // Refresh token should usually be httpOnly
-      });
-    }
-
-    const isRedirectRoute = matchesPath(url.pathname, redirectPaths);
-    // const isRedirectRoute = matchesPattern(url, redirectPatterns); // URLPattern alternative
-
-    if (isRedirectRoute) {
-      const accessToken = cookies.get("sb-access-token");
-      const refreshToken = cookies.get("sb-refresh-token");
-
-      if (accessToken && refreshToken) {
-        // Maybe quickly verify tokens here before redirecting? Optional.
-        return redirect("/dashboard");
-      }
-    }
-
-    const isProtectedAPIRoute = matchesPath(url.pathname, protectedAPIPaths);
-    // const isProtectedAPIRoute = matchesPattern(url, protectedAPIPatterns); // URLPattern alternative
-
-    if (isProtectedAPIRoute) {
-      const accessToken = cookies.get("sb-access-token");
-      const refreshToken = cookies.get("sb-refresh-token");
-
-      if (!accessToken || !refreshToken) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
-      }
-
-      const { error } = await supabase.auth.getUser(accessToken.value); // Use getUser for a quick check
-
-      if (error) {
-         // Attempt to refresh if getUser fails (could be expired token)
-         if (refreshToken) {
-            const { error: refreshError } = await supabase.auth.setSession({
-                 refresh_token: refreshToken.value,
-                 access_token: accessToken.value, // Provide both for potential session update
-            });
-             if (refreshError) {
-                 // Clear invalid cookies if refresh fails
-                 cookies.delete("sb-access-token", { path: "/" });
-                 cookies.delete("sb-refresh-token", { path: "/" });
-                 return new Response(JSON.stringify({ error: "Unauthorized - Session Refresh Failed" }), { status: 401 });
-             }
-             // If refresh succeeded, the tokens might have been updated by setSession.
-             // Proceed carefully, maybe re-check or let the request handler proceed.
-             // For simplicity here, we'll just proceed assuming setSession handles validity.
-         } else {
-            // No refresh token available
-            return new Response(JSON.stringify({ error: "Unauthorized - Invalid Token" }), { status: 401 });
-         }
-      }
-      // If getUser succeeded or refresh succeeded, proceed
-    }
-
-    // If none of the conditions matched or validation passed, continue to the next middleware or page
-    return next();
-  },
-);
-```
-
----
-
-`src\pages\dashboard.astro`:
-```
----
-// src/pages/dashboard.astro
-import Layout from "../layout/Layout.astro";
-import { supabase } from "../lib/supabase";
-import Reviews from "../components/Reviews.astro";
-import type { GuestbookEntry } from "../types/types";
-
-const { email } = Astro.locals;
-
-let reviews: GuestbookEntry[] = [];
-let fetchError: string | null = null;
-
-try {
-  const { data, error } = await supabase
-    .from("guestbook")
-    .select("name, message")
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    throw error;
-  }
-  reviews = data as GuestbookEntry[];
-
-} catch (e: any) {
-   fetchError = `Failed to load reviews: ${e.message}`;
-   console.error("Error fetching reviews:", e);
-}
----
-
-<Layout title="Dashboard">
-  <section>
-    <p>
-      Logged in as: <strong>{email}</strong>
-    </p>
-    <p>
-      This is a protected page. You can only see this if you are logged in.
-    </p>
-    <a
-      href="/api/auth/signout"
-      >Sign out</a
-    >
-
-    {fetchError && <p>{fetchError}</p>}
-
-    <Reviews reviews={reviews} />
-  </section>
-</Layout>
-```
-
----
-
 `src\lib\supabase.ts`:
 ```
 import { createClient } from "@supabase/supabase-js";
@@ -216,36 +16,6 @@ export const supabase = createClient(
     },
   },
 );
-
-```
-
----
-
-`src\pages\api\auth\register.ts`:
-```
-import type { APIRoute } from "astro";
-import { supabase } from "../../../lib/supabase";
-
-export const POST: APIRoute = async ({ request, redirect }) => {
-  const formData = await request.formData();
-  const email = formData.get("email")?.toString();
-  const password = formData.get("password")?.toString();
-
-  if (!email || !password) {
-    return new Response("Email and password are required", { status: 400 });
-  }
-
-  const { error } = await supabase.auth.signUp({
-    email,
-    password,
-  });
-
-  if (error) {
-    return new Response(error.message, { status: 500 });
-  }
-
-  return redirect("/signin");
-};
 
 ```
 
@@ -283,28 +53,71 @@ const title = "Supabase and Astro Demo";
 
 ---
 
-`astro.config.mjs`:
+`tsconfig.json`:
 ```
-// @ts-check
-import { defineConfig } from 'astro/config';
-import netlify from '@astrojs/netlify';
+{
+  "extends": "astro/tsconfigs/strict",
+  "include": [".astro/types.d.ts", "**/*"],
+  "exclude": ["dist"]
+}
 
-export default defineConfig({
-  site: 'https://tarjuman.netlify.app',
-  output: 'server',
-  adapter: netlify(),
-});
 ```
 
 ---
 
-`src\types\types.ts`:
+`src\layout\Layout.astro`:
 ```
-// src/types/types.ts
-export interface GuestbookEntry {
-    name: string;
-    message: string;
-  }
+---
+interface Props {
+  title: string;
+}
+
+const description = "Astro and Supabase demo app";
+const { title } = Astro.props;
+const ogImageURL = new URL("hero.png", Astro.site).href;
+const canonicalURL = new URL(Astro.url).href;
+---
+
+<html lang="en" class="h-full w-full">
+  <head>
+    <title>{title}</title>
+    <meta charset="utf-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="generator" content={Astro.generator} />
+    <meta name="description" content={description} />
+    <meta property="twitter:image" content={ogImageURL} />
+    <meta property="twitter:card" content="summary_large_image" />
+    <meta property="twitter:title" content={title} />
+    <meta property="twitter:description" content={description} />
+    <meta property="og:image" content={ogImageURL} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonicalURL} />
+  </head>
+  <body>
+    <nav>
+      <div>
+        <a href="/">Astro</a>
+        <div>
+          <ul>
+            <li>
+              <a href="/dashboard"> </a>
+              <li>
+                <a href="/register">Register</a>
+              </li>
+              <li>
+                <a href="/signin">Sign in</a>
+              </li>
+            </li>
+          </ul>
+        </div>
+      </div>
+      <slot />
+    </nav>
+  </body>
+</html>
+
 ```
 
 ---
@@ -385,6 +198,137 @@ const title = "Sign in";
     </section>
   </main>
 </Layout>
+
+```
+
+---
+
+`src\pages\api\auth\register.ts`:
+```
+import type { APIRoute } from "astro";
+import { supabase } from "../../../lib/supabase";
+
+export const POST: APIRoute = async ({ request, redirect }) => {
+  const formData = await request.formData();
+  const email = formData.get("email")?.toString();
+  const password = formData.get("password")?.toString();
+
+  if (!email || !password) {
+    return new Response("Email and password are required", { status: 400 });
+  }
+
+  const { error } = await supabase.auth.signUp({
+    email,
+    password,
+  });
+
+  if (error) {
+    return new Response(error.message, { status: 500 });
+  }
+
+  return redirect("/signin");
+};
+
+```
+
+---
+
+`src\pages\dashboard.astro`:
+```
+---
+// src/pages/dashboard.astro
+import Layout from "../layout/Layout.astro";
+import { supabase } from "../lib/supabase";
+import Reviews from "../components/Reviews.astro";
+import type { GuestbookEntry } from "../types/types";
+
+const { email } = Astro.locals;
+
+let reviews: GuestbookEntry[] = [];
+let fetchError: string | null = null;
+
+try {
+  const { data, error } = await supabase
+    .from("guestbook")
+    .select("name, message")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    throw error;
+  }
+  reviews = data as GuestbookEntry[];
+
+} catch (e: any) {
+   fetchError = `Failed to load reviews: ${e.message}`;
+   console.error("Error fetching reviews:", e);
+}
+---
+
+<Layout title="Dashboard">
+  <section>
+    <p>
+      Logged in as: <strong>{email}</strong>
+    </p>
+    <p>
+      This is a protected page. You can only see this if you are logged in.
+    </p>
+    <a
+      href="/api/auth/signout"
+      >Sign out</a
+    >
+
+    {fetchError && <p>{fetchError}</p>}
+
+    <Reviews reviews={reviews} />
+  </section>
+</Layout>
+```
+
+---
+
+`src\env.d.ts`:
+```
+declare namespace App {
+  interface Locals {
+    email: string;
+  }
+}
+```
+
+---
+
+`src\pages\api\auth\callback.ts`:
+```
+import type { APIRoute } from "astro";
+import { supabase } from "../../../lib/supabase";
+
+export const GET: APIRoute = async ({ url, cookies, redirect }) => {
+  const authCode = url.searchParams.get("code");
+
+  if (!authCode) {
+    return new Response("No code provided", { status: 400 });
+  }
+
+  const { data, error } = await supabase.auth.exchangeCodeForSession(authCode);
+
+  if (error) {
+    return new Response(error.message, { status: 500 });
+  }
+
+  const { access_token, refresh_token } = data.session;
+
+  cookies.set("sb-access-token", access_token, {
+    path: "/",
+    secure: true,
+    httpOnly: true,
+  });
+  cookies.set("sb-refresh-token", refresh_token, {
+    path: "/",
+    secure: true,
+    httpOnly: true,
+  });
+  return redirect("/dashboard");
+};
 
 ```
 
@@ -530,112 +474,6 @@ const { reviews } = Astro.props;
 
 ---
 
-`tsconfig.json`:
-```
-{
-  "extends": "astro/tsconfigs/strict",
-  "include": [".astro/types.d.ts", "**/*"],
-  "exclude": ["dist"]
-}
-
-```
-
----
-
-`src\pages\api\guestbook.ts`:
-```
-import type { APIRoute } from "astro";
-import { supabase } from "../../lib/supabase";
-
-export const GET: APIRoute = async () => {
-  const { data, error } = await supabase
-    .from("guestbook")
-    .select("*")
-    .order("created_at", { ascending: true });
-
-  if (error) {
-    return new Response(
-      JSON.stringify({
-        error: error.message,
-      }),
-      { status: 500 },
-    );
-  }
-
-  return new Response(JSON.stringify(data));
-};
-
-export const POST: APIRoute = async ({ request }) => {
-  const { name, message } = await request.json();
-  const { data, error } = await supabase
-    .from("guestbook")
-    .insert({ name, message })
-    .select();
-
-  if (error) {
-    return new Response(
-      JSON.stringify({
-        error: error.message,
-      }),
-      { status: 500 },
-    );
-  }
-
-  return new Response(JSON.stringify(data));
-};
-
-```
-
----
-
-`src\pages\api\auth\callback.ts`:
-```
-import type { APIRoute } from "astro";
-import { supabase } from "../../../lib/supabase";
-
-export const GET: APIRoute = async ({ url, cookies, redirect }) => {
-  const authCode = url.searchParams.get("code");
-
-  if (!authCode) {
-    return new Response("No code provided", { status: 400 });
-  }
-
-  const { data, error } = await supabase.auth.exchangeCodeForSession(authCode);
-
-  if (error) {
-    return new Response(error.message, { status: 500 });
-  }
-
-  const { access_token, refresh_token } = data.session;
-
-  cookies.set("sb-access-token", access_token, {
-    path: "/",
-    secure: true,
-    httpOnly: true,
-  });
-  cookies.set("sb-refresh-token", refresh_token, {
-    path: "/",
-    secure: true,
-    httpOnly: true,
-  });
-  return redirect("/dashboard");
-};
-
-```
-
----
-
-`src\env.d.ts`:
-```
-declare namespace App {
-  interface Locals {
-    email: string;
-  }
-}
-```
-
----
-
 `src\pages\api\auth\signin.ts`:
 ```
 import type { APIRoute } from "astro";
@@ -705,73 +543,13 @@ export const POST: APIRoute = async ({ request, cookies, redirect, url }) => { /
 
 ---
 
-`src\pages\api\auth\signout.ts`:
+`src\types\types.ts`:
 ```
-import type { APIRoute } from "astro";
-
-export const GET: APIRoute = async ({ cookies, redirect }) => {
-  cookies.delete("sb-access-token", { path: "/" });
-  cookies.delete("sb-refresh-token", { path: "/" });
-  return redirect("/signin");
-};
-
-```
-
----
-
-`src\layout\Layout.astro`:
-```
----
-interface Props {
-  title: string;
-}
-
-const description = "Astro and Supabase demo app";
-const { title } = Astro.props;
-const ogImageURL = new URL("hero.png", Astro.site).href;
-const canonicalURL = new URL(Astro.url).href;
----
-
-<html lang="en" class="h-full w-full">
-  <head>
-    <title>{title}</title>
-    <meta charset="utf-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width" />
-    <meta name="generator" content={Astro.generator} />
-    <meta name="description" content={description} />
-    <meta property="twitter:image" content={ogImageURL} />
-    <meta property="twitter:card" content="summary_large_image" />
-    <meta property="twitter:title" content={title} />
-    <meta property="twitter:description" content={description} />
-    <meta property="og:image" content={ogImageURL} />
-    <meta property="og:title" content={title} />
-    <meta property="og:description" content={description} />
-    <meta property="og:url" content={canonicalURL} />
-  </head>
-  <body>
-    <nav>
-      <div>
-        <a href="/">Astro</a>
-        <div>
-          <ul>
-            <li>
-              <a href="/dashboard"> </a>
-              <li>
-                <a href="/register">Register</a>
-              </li>
-              <li>
-                <a href="/signin">Sign in</a>
-              </li>
-            </li>
-          </ul>
-        </div>
-      </div>
-      <slot />
-    </nav>
-  </body>
-</html>
-
+// src/types/types.ts
+export interface GuestbookEntry {
+    name: string;
+    message: string;
+  }
 ```
 
 ---
@@ -830,6 +608,228 @@ const title = "Register";
   </main>
 </Layout>
 
+```
+
+---
+
+`src\middleware\index.ts`:
+```
+// src/middleware/index.ts
+import { defineMiddleware } from "astro:middleware";
+import { supabase } from "../lib/supabase";
+// No need to import micromatch anymore
+
+// Define routes clearly
+// For simple paths, direct string comparison after normalization is often easiest
+const protectedPaths = ["/dashboard"];
+const redirectPaths = ["/signin", "/register"];
+const protectedAPIPaths = ["/api/guestbook"];
+
+// Helper function to check paths, handling optional trailing slash
+function matchesPath(pathname: string, pathsToCheck: string[]): boolean {
+  // Normalize pathname by removing trailing slash (if present)
+  const normalizedPathname = pathname.endsWith('/') && pathname.length > 1
+    ? pathname.slice(0, -1)
+    : pathname;
+  return pathsToCheck.includes(normalizedPathname);
+}
+
+// --- OR using URLPattern (slightly more overhead for this simple case, but good for complex patterns) ---
+/*
+const protectedPatterns = [
+  new URLPattern({ pathname: '/dashboard' }),
+  new URLPattern({ pathname: '/dashboard/' }) // Handle trailing slash explicitly
+];
+const redirectPatterns = [
+  new URLPattern({ pathname: '/signin' }),
+  new URLPattern({ pathname: '/signin/' }),
+  new URLPattern({ pathname: '/register' }),
+  new URLPattern({ pathname: '/register/' })
+];
+const protectedAPIPatterns = [
+    new URLPattern({ pathname: '/api/guestbook' }),
+    new URLPattern({ pathname: '/api/guestbook/' })
+];
+
+function matchesPattern(url: URL, patterns: URLPattern[]): boolean {
+    return patterns.some(pattern => pattern.test(url));
+}
+*/
+// --- End of URLPattern example ---
+
+
+export const onRequest = defineMiddleware(
+  async ({ locals, url, cookies, redirect }, next) => {
+
+    // Choose one method: matchesPath (simpler) or matchesPattern (URLPattern)
+    const isProtectedRoute = matchesPath(url.pathname, protectedPaths);
+    // const isProtectedRoute = matchesPattern(url, protectedPatterns); // URLPattern alternative
+
+    if (isProtectedRoute) {
+      const accessToken = cookies.get("sb-access-token");
+      const refreshToken = cookies.get("sb-refresh-token");
+
+      if (!accessToken || !refreshToken) {
+        return redirect("/signin");
+      }
+
+      // ... rest of your token validation logic ...
+      const { data, error } = await supabase.auth.setSession({
+        refresh_token: refreshToken.value,
+        access_token: accessToken.value,
+      });
+
+      if (error) {
+        // Clear potentially invalid cookies
+        cookies.delete("sb-access-token", { path: "/" });
+        cookies.delete("sb-refresh-token", { path: "/" });
+        return redirect("/signin");
+      }
+
+      locals.email = data.user?.email!;
+      cookies.set("sb-access-token", data?.session?.access_token!, {
+        sameSite: "strict",
+        path: "/",
+        secure: true, // Keep secure: true for production
+        httpOnly: true // Consider adding httpOnly for access token if not needed client-side
+      });
+      cookies.set("sb-refresh-token", data?.session?.refresh_token!, {
+        sameSite: "strict",
+        path: "/",
+        secure: true, // Keep secure: true for production
+        httpOnly: true, // Refresh token should usually be httpOnly
+      });
+    }
+
+    const isRedirectRoute = matchesPath(url.pathname, redirectPaths);
+    // const isRedirectRoute = matchesPattern(url, redirectPatterns); // URLPattern alternative
+
+    if (isRedirectRoute) {
+      const accessToken = cookies.get("sb-access-token");
+      const refreshToken = cookies.get("sb-refresh-token");
+
+      if (accessToken && refreshToken) {
+        // Maybe quickly verify tokens here before redirecting? Optional.
+        return redirect("/dashboard");
+      }
+    }
+
+    const isProtectedAPIRoute = matchesPath(url.pathname, protectedAPIPaths);
+    // const isProtectedAPIRoute = matchesPattern(url, protectedAPIPatterns); // URLPattern alternative
+
+    if (isProtectedAPIRoute) {
+      const accessToken = cookies.get("sb-access-token");
+      const refreshToken = cookies.get("sb-refresh-token");
+
+      if (!accessToken || !refreshToken) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+      }
+
+      const { error } = await supabase.auth.getUser(accessToken.value); // Use getUser for a quick check
+
+      if (error) {
+         // Attempt to refresh if getUser fails (could be expired token)
+         if (refreshToken) {
+            const { error: refreshError } = await supabase.auth.setSession({
+                 refresh_token: refreshToken.value,
+                 access_token: accessToken.value, // Provide both for potential session update
+            });
+             if (refreshError) {
+                 // Clear invalid cookies if refresh fails
+                 cookies.delete("sb-access-token", { path: "/" });
+                 cookies.delete("sb-refresh-token", { path: "/" });
+                 return new Response(JSON.stringify({ error: "Unauthorized - Session Refresh Failed" }), { status: 401 });
+             }
+             // If refresh succeeded, the tokens might have been updated by setSession.
+             // Proceed carefully, maybe re-check or let the request handler proceed.
+             // For simplicity here, we'll just proceed assuming setSession handles validity.
+         } else {
+            // No refresh token available
+            return new Response(JSON.stringify({ error: "Unauthorized - Invalid Token" }), { status: 401 });
+         }
+      }
+      // If getUser succeeded or refresh succeeded, proceed
+    }
+
+    // If none of the conditions matched or validation passed, continue to the next middleware or page
+    return next();
+  },
+);
+```
+
+---
+
+`src\pages\api\guestbook.ts`:
+```
+import type { APIRoute } from "astro";
+import { supabase } from "../../lib/supabase";
+
+export const GET: APIRoute = async () => {
+  const { data, error } = await supabase
+    .from("guestbook")
+    .select("*")
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    return new Response(
+      JSON.stringify({
+        error: error.message,
+      }),
+      { status: 500 },
+    );
+  }
+
+  return new Response(JSON.stringify(data));
+};
+
+export const POST: APIRoute = async ({ request }) => {
+  const { name, message } = await request.json();
+  const { data, error } = await supabase
+    .from("guestbook")
+    .insert({ name, message })
+    .select();
+
+  if (error) {
+    return new Response(
+      JSON.stringify({
+        error: error.message,
+      }),
+      { status: 500 },
+    );
+  }
+
+  return new Response(JSON.stringify(data));
+};
+
+```
+
+---
+
+`src\pages\api\auth\signout.ts`:
+```
+import type { APIRoute } from "astro";
+
+export const GET: APIRoute = async ({ cookies, redirect }) => {
+  cookies.delete("sb-access-token", { path: "/" });
+  cookies.delete("sb-refresh-token", { path: "/" });
+  return redirect("/signin");
+};
+
+```
+
+---
+
+`astro.config.mjs`:
+```
+// @ts-check
+import { defineConfig } from 'astro/config';
+import netlify from '@astrojs/netlify';
+
+export default defineConfig({
+  site: 'https://tarjuman.netlify.app',
+  output: 'server',
+  adapter: netlify(),
+});
 ```
 
 ---
