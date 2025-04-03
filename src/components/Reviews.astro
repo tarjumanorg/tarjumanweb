@@ -57,10 +57,10 @@ const { reviews } = Astro.props;
     </button>
   </form>
 
-  <h3 class="text-lg font-semibold mb-3 dark:text-white">Guestbook Entries</h3>
+  <h3>Guestbook Entries</h3>
    <div id="reviews-list">
     {reviews.length > 0 ? (
-        <ul class="space-y-4">
+        <ul>
         {reviews.map((review) => (
             <li>
             <p>
@@ -121,7 +121,6 @@ const { reviews } = Astro.props;
       } catch (error: any) {
         console.error('Submission error:', error);
         statusDiv.textContent = `Error: ${error.message || 'Could not submit message.'}`;
-        statusDiv.classList.add('text-red-600', 'dark:text-red-400');
 
       } finally {
         submitButton.disabled = false;

@@ -6,4 +6,5 @@ export default defineConfig({
   site: 'https://tarjuman.netlify.app',
   output: 'server',
   adapter: netlify(),
+
 });
