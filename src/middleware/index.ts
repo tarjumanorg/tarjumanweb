@@ -57,14 +57,12 @@ export const onRequest = defineMiddleware(
         return redirect("/signin");
       }
 
-      // ... rest of your token validation logic ...
       const { data, error } = await supabase.auth.setSession({
         refresh_token: refreshToken.value,
         access_token: accessToken.value,
       });
 
       if (error) {
-        // Clear potentially invalid cookies
         cookies.delete("sb-access-token", { path: "/" });
         cookies.delete("sb-refresh-token", { path: "/" });
         return redirect("/signin");
@@ -74,14 +72,14 @@ export const onRequest = defineMiddleware(
       cookies.set("sb-access-token", data?.session?.access_token!, {
         sameSite: "strict",
         path: "/",
-        secure: true, // Keep secure: true for production
-        httpOnly: true // Consider adding httpOnly for access token if not needed client-side
+        secure: true,
+        httpOnly: true
       });
       cookies.set("sb-refresh-token", data?.session?.refresh_token!, {
         sameSite: "strict",
         path: "/",
-        secure: true, // Keep secure: true for production
-        httpOnly: true, // Refresh token should usually be httpOnly
+        secure: true,
+        httpOnly: true,
       });
     }
 
@@ -109,33 +107,26 @@ export const onRequest = defineMiddleware(
         return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
       }
 
-      const { error } = await supabase.auth.getUser(accessToken.value); // Use getUser for a quick check
+      const { error } = await supabase.auth.getUser(accessToken.value);
 
       if (error) {
-         // Attempt to refresh if getUser fails (could be expired token)
          if (refreshToken) {
             const { error: refreshError } = await supabase.auth.setSession({
                  refresh_token: refreshToken.value,
-                 access_token: accessToken.value, // Provide both for potential session update
+                 access_token: accessToken.value,
             });
              if (refreshError) {
-                 // Clear invalid cookies if refresh fails
                  cookies.delete("sb-access-token", { path: "/" });
                  cookies.delete("sb-refresh-token", { path: "/" });
                  return new Response(JSON.stringify({ error: "Unauthorized - Session Refresh Failed" }), { status: 401 });
              }
-             // If refresh succeeded, the tokens might have been updated by setSession.
              // Proceed carefully, maybe re-check or let the request handler proceed.
              // For simplicity here, we'll just proceed assuming setSession handles validity.
          } else {
-            // No refresh token available
             return new Response(JSON.stringify({ error: "Unauthorized - Invalid Token" }), { status: 401 });
          }
       }
-      // If getUser succeeded or refresh succeeded, proceed
     }
-
-    // If none of the conditions matched or validation passed, continue to the next middleware or page
     return next();
   },
 );
