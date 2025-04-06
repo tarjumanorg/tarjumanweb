@@ -1,16 +1,5 @@
 ---
 
-`.env`:
-```
-PUBLIC_SUPABASE_URL=https://blopbebmckbgyrpzisjt.supabase.co
-PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJsb3BiZWJtY2tiZ3lycHppc2p0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM0NzA5NDUsImV4cCI6MjA1OTA0Njk0NX0.4p-Q-k9oX5wEBy7tq57SFgjbw99WdNGjiBW3pE-RACI
-
-PUBLIC_TURNSTILE_SITE_KEY="0x4AAAAAABDz77Fkj-zw6ls4" # Publicly visible
-TURNSTILE_SECRET_KEY="0x4AAAAAABDz75OOEBihJZB-ORudV6xSR4E"
-```
-
----
-
 `astro.config.mjs`:
 ```
 import { defineConfig } from 'astro/config';
@@ -268,53 +257,25 @@ export const supabase = createClient(
 // src/middleware/index.ts
 import { defineMiddleware } from "astro:middleware";
 import { supabase } from "../lib/supabase";
-// No need to import micromatch anymore
 
 // Define routes clearly
-// For simple paths, direct string comparison after normalization is often easiest
 const protectedPaths = ["/dashboard"];
-const redirectPaths = ["/signin", "/register"];
-const protectedAPIPaths = ["/api/guestbook"];
+const redirectPaths = ["/signin", "/register"]; // Assuming you might add /register later
+// Add the new API route for creating orders
+const protectedAPIPaths = ["/api/guestbook", "/api/orders/create"]; // <-- ADDED HERE
 
 // Helper function to check paths, handling optional trailing slash
 function matchesPath(pathname: string, pathsToCheck: string[]): boolean {
-  // Normalize pathname by removing trailing slash (if present)
   const normalizedPathname = pathname.endsWith('/') && pathname.length > 1
     ? pathname.slice(0, -1)
     : pathname;
   return pathsToCheck.includes(normalizedPathname);
 }
 
-// --- OR using URLPattern (slightly more overhead for this simple case, but good for complex patterns) ---
-/*
-const protectedPatterns = [
-  new URLPattern({ pathname: '/dashboard' }),
-  new URLPattern({ pathname: '/dashboard/' }) // Handle trailing slash explicitly
-];
-const redirectPatterns = [
-  new URLPattern({ pathname: '/signin' }),
-  new URLPattern({ pathname: '/signin/' }),
-  new URLPattern({ pathname: '/register' }),
-  new URLPattern({ pathname: '/register/' })
-];
-const protectedAPIPatterns = [
-    new URLPattern({ pathname: '/api/guestbook' }),
-    new URLPattern({ pathname: '/api/guestbook/' })
-];
-
-function matchesPattern(url: URL, patterns: URLPattern[]): boolean {
-    return patterns.some(pattern => pattern.test(url));
-}
-*/
-// --- End of URLPattern example ---
-
-
 export const onRequest = defineMiddleware(
   async ({ locals, url, cookies, redirect }, next) => {
 
-    // Choose one method: matchesPath (simpler) or matchesPattern (URLPattern)
     const isProtectedRoute = matchesPath(url.pathname, protectedPaths);
-    // const isProtectedRoute = matchesPattern(url, protectedPatterns); // URLPattern alternative
 
     if (isProtectedRoute) {
       const accessToken = cookies.get("sb-access-token");
@@ -335,65 +296,91 @@ export const onRequest = defineMiddleware(
         return redirect("/signin");
       }
 
+      // Store email in locals for dashboard page
       locals.email = data.user?.email!;
+
+      // Refresh cookies with potentially new tokens and ensure flags are set
       cookies.set("sb-access-token", data?.session?.access_token!, {
         sameSite: "strict",
         path: "/",
-        secure: true,
+        secure: import.meta.env.PROD, // Use secure cookies in production
         httpOnly: true
       });
       cookies.set("sb-refresh-token", data?.session?.refresh_token!, {
         sameSite: "strict",
         path: "/",
-        secure: true,
+        secure: import.meta.env.PROD, // Use secure cookies in production
         httpOnly: true,
       });
     }
 
     const isRedirectRoute = matchesPath(url.pathname, redirectPaths);
-    // const isRedirectRoute = matchesPattern(url, redirectPatterns); // URLPattern alternative
 
     if (isRedirectRoute) {
       const accessToken = cookies.get("sb-access-token");
       const refreshToken = cookies.get("sb-refresh-token");
 
       if (accessToken && refreshToken) {
-        // Maybe quickly verify tokens here before redirecting? Optional.
+        // Optional: Quick validation before redirecting?
+        // For simplicity, just redirect if tokens exist.
+        // A robust check might involve supabase.auth.getUser(accessToken.value)
         return redirect("/dashboard");
       }
     }
 
     const isProtectedAPIRoute = matchesPath(url.pathname, protectedAPIPaths);
-    // const isProtectedAPIRoute = matchesPattern(url, protectedAPIPatterns); // URLPattern alternative
 
     if (isProtectedAPIRoute) {
       const accessToken = cookies.get("sb-access-token");
-      const refreshToken = cookies.get("sb-refresh-token");
+      const refreshToken = cookies.get("sb-refresh-token"); // Keep refresh token check for robustness
 
-      if (!accessToken || !refreshToken) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+      if (!accessToken) { // Primarily check access token for API calls
+         console.log("Middleware: No access token for protected API route");
+         return new Response(JSON.stringify({ error: "Unauthorized: Missing token" }), { status: 401 });
       }
 
-      const { error } = await supabase.auth.getUser(accessToken.value);
+      // Validate the access token
+      const { data: { user }, error } = await supabase.auth.getUser(accessToken.value);
 
-      if (error) {
-         if (refreshToken) {
-            const { error: refreshError } = await supabase.auth.setSession({
-                 refresh_token: refreshToken.value,
-                 access_token: accessToken.value,
-            });
-             if (refreshError) {
-                 cookies.delete("sb-access-token", { path: "/" });
-                 cookies.delete("sb-refresh-token", { path: "/" });
-                 return new Response(JSON.stringify({ error: "Unauthorized - Session Refresh Failed" }), { status: 401 });
-             }
-             // Proceed carefully, maybe re-check or let the request handler proceed.
-             // For simplicity here, we'll just proceed assuming setSession handles validity.
-         } else {
-            return new Response(JSON.stringify({ error: "Unauthorized - Invalid Token" }), { status: 401 });
-         }
+      if (error || !user) {
+        console.log("Middleware: Invalid/Expired token for API route.", error?.message);
+        // Attempt refresh only if refresh token exists (though less common for API calls)
+        if (refreshToken) {
+           const { data: refreshData , error: refreshError } = await supabase.auth.setSession({
+                refresh_token: refreshToken.value,
+                access_token: accessToken.value, // Include access token for potential validation
+           });
+
+            if (refreshError || !refreshData.session) {
+                console.log("Middleware: Session refresh failed for API route.");
+                cookies.delete("sb-access-token", { path: "/" });
+                cookies.delete("sb-refresh-token", { path: "/" });
+                return new Response(JSON.stringify({ error: "Unauthorized: Session Refresh Failed" }), { status: 401 });
+            }
+
+             // If refresh worked, set new cookies (important!) and proceed
+             console.log("Middleware: Session refreshed successfully for API route.");
+             cookies.set("sb-access-token", refreshData.session.access_token, {
+               sameSite: "strict", path: "/", secure: import.meta.env.PROD, httpOnly: true
+             });
+             cookies.set("sb-refresh-token", refreshData.session.refresh_token, {
+               sameSite: "strict", path: "/", secure: import.meta.env.PROD, httpOnly: true
+             });
+             // We *could* store the user ID in locals here if needed by multiple API endpoints
+             // locals.userId = refreshData.user.id;
+             return next(); // Proceed with the refreshed session
+        } else {
+            // No refresh token, definitely unauthorized
+            cookies.delete("sb-access-token", { path: "/" }); // Clean up invalid token
+            return new Response(JSON.stringify({ error: "Unauthorized: Invalid Token" }), { status: 401 });
+        }
       }
+      // If token is valid, proceed.
+      // We *could* store the user ID in locals here if needed by multiple API endpoints
+      // locals.userId = user.id;
     }
+
+    // If none of the above conditions were met, proceed to the route handler
     return next();
   },
 );
@@ -476,6 +463,159 @@ const title = "Supabase and Astro Demo";
   </main>
 </Layout>
 
+```
+---
+
+`src/pages/order.astro`:
+```
+---
+// src/pages/order.astro
+import Layout from "../layout/Layout.astro";
+
+const title = "Place Your Order";
+---
+
+<Layout title={title}>
+  <main>
+    <section>
+      <h1>{title}</h1>
+      <p>Enter your name to start your order.</p>
+
+      <form id="order-form">
+        <div>
+          <label for="orderer-name">Your Name:</label>
+          <input
+            type="text"
+            id="orderer-name"
+            name="orderer_name"
+            required
+            placeholder="Enter your name"
+          />
+        </div>
+
+        <div id="order-status" aria-live="polite" style="margin-top: 1rem; min-height: 1.5em;">
+          {/* Status messages will appear here */}
+        </div>
+
+        <button type="submit" id="submit-order-button" style="margin-top: 1rem;">
+          Submit Order
+        </button>
+      </form>
+
+    </section>
+  </main>
+</Layout>
+
+<script>
+  // Import Supabase client - Ensure PUBLIC keys are used in supabase.ts
+  import { supabase } from '../lib/supabase';
+
+  const form = document.getElementById('order-form') as HTMLFormElement | null;
+  const nameInput = document.getElementById('orderer-name') as HTMLInputElement | null;
+  const submitButton = document.getElementById('submit-order-button') as HTMLButtonElement | null;
+  const statusDiv = document.getElementById('order-status');
+
+  if (form && nameInput && submitButton && statusDiv) {
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault(); // Stop default form submission
+
+      const ordererName = nameInput.value.trim();
+
+      if (!ordererName) {
+        statusDiv.textContent = 'Please enter your name.';
+        statusDiv.style.color = 'red';
+        nameInput.focus();
+        return;
+      }
+
+      // Disable button and show processing state
+      submitButton.disabled = true;
+      submitButton.textContent = 'Processing...';
+      statusDiv.textContent = 'Processing your request...';
+      statusDiv.style.color = 'inherit'; // Reset color
+
+      try {
+        // 1. Check if already logged in
+        let { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+        if (sessionError) {
+          console.error("Error checking session:", sessionError);
+          throw new Error("Could not check authentication status.");
+        }
+
+        // 2. If not logged in, sign in anonymously
+        if (!session) {
+          statusDiv.textContent = 'Signing in anonymously...';
+          const { error: signInError } = await supabase.auth.signInAnonymously();
+
+          if (signInError) {
+            console.error("Anonymous sign-in error:", signInError);
+            throw new Error(`Anonymous sign-in failed: ${signInError.message}`);
+          }
+          console.log("Anonymous sign-in successful.");
+          // Re-fetch session data just to be sure (optional but good practice)
+          const { data: { session: newSession }, error: postSignInError } = await supabase.auth.getSession();
+          if (postSignInError || !newSession) {
+             console.error("Error fetching session after anonymous sign-in:", postSignInError);
+             throw new Error("Failed to confirm session after anonymous sign-in.");
+          }
+          session = newSession; // Use the confirmed session
+        } else {
+            console.log("User already has a session.");
+        }
+
+        // 3. Submit the order data (user is now guaranteed to be authenticated)
+        statusDiv.textContent = 'Submitting order...';
+
+        const response = await fetch('/api/orders/create', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: JSON.stringify({ orderer_name: ordererName }),
+        });
+
+        // Check response status
+        if (!response.ok) {
+          let errorMsg = `HTTP error! Status: ${response.status}`;
+          try {
+            // Try to parse error message from API response body
+            const errorData = await response.json();
+            errorMsg = errorData.error || errorMsg; // Use API error if available
+          } catch (parseError) {
+            // Ignore if response body is not JSON or empty
+          }
+          console.error("Order submission failed:", errorMsg);
+          throw new Error(`Order submission failed: ${errorMsg}`);
+        }
+
+        // Order submitted successfully
+        const createdOrder = await response.json();
+        console.log("Order created:", createdOrder);
+        statusDiv.textContent = `Order submitted successfully! Order ID: ${createdOrder.id}`;
+        statusDiv.style.color = 'green';
+        form.reset(); // Clear the form
+
+        // Optional: Redirect or update UI further
+        // window.location.href = '/dashboard'; // Example redirect
+
+
+      } catch (error: any) {
+        console.error('Order process error:', error);
+        statusDiv.textContent = `Error: ${error.message || 'An unexpected error occurred.'}`;
+        statusDiv.style.color = 'red';
+
+      } finally {
+        // Re-enable the button regardless of success or failure
+        submitButton.disabled = false;
+        submitButton.textContent = 'Submit Order';
+      }
+    });
+  } else {
+    console.error('Could not find all required elements for the order form script.');
+  }
+</script>
 ```
 ---
 
@@ -637,6 +777,98 @@ export const GET: APIRoute = async ({ cookies, redirect }) => {
   return redirect("/signin");
 };
 
+```
+---
+
+`src/pages/api/orders/create.ts`:
+```
+// src/pages/api/orders/create.ts
+import type { APIRoute } from "astro";
+import { supabase } from "../../../lib/supabase";
+
+export const POST: APIRoute = async ({ request, cookies }) => {
+  // 1. Get submitted data
+  let ordererName: string | undefined;
+  try {
+    const data = await request.json();
+    ordererName = data.orderer_name?.toString().trim(); // Basic sanitization
+
+    if (!ordererName) {
+      return new Response(
+        JSON.stringify({ error: "Orderer name is required." }),
+        { status: 400 }
+      );
+    }
+  } catch (error) {
+    return new Response(
+      JSON.stringify({ error: "Invalid request body. Expected JSON." }),
+      { status: 400 }
+    );
+  }
+
+
+  // 2. Verify authentication and get user ID (Middleware should have run, but double-check)
+  const accessToken = cookies.get("sb-access-token");
+
+  if (!accessToken) {
+    // This shouldn't happen if middleware is working, but belt-and-suspenders
+    return new Response(JSON.stringify({ error: "Unauthorized: Missing token" }), { status: 401 });
+  }
+
+  const { data: { user }, error: userError } = await supabase.auth.getUser(accessToken.value);
+
+  if (userError || !user) {
+    console.error("API /api/orders/create: Error getting user", userError);
+    // Optionally attempt refresh here? Middleware should handle this primarily.
+    // For simplicity in the API route, we'll rely on middleware validation.
+    return new Response(JSON.stringify({ error: "Unauthorized: Invalid session" }), { status: 401 });
+  }
+
+  const userId = user.id;
+
+  // 3. Insert into Database
+  try {
+    const { data: newOrder, error: insertError } = await supabase
+      .from("orders")
+      .insert({
+        user_id: userId,
+        orderer_name: ordererName,
+        status: "pending", // Set a default status
+        // Add defaults for other required fields if necessary, or handle nulls
+        // page_count: 0,
+        // total_price: 0,
+        // package_tier: 'default',
+        // uploaded_file_urls: []
+      })
+      .select() // Return the created row
+      .single(); // Expect only one row back
+
+    if (insertError) {
+      console.error("API /api/orders/create: Supabase insert error", insertError);
+      // Check for specific errors, e.g., RLS violation
+      if (insertError.code === '42501') { // RLS violation code
+         return new Response(
+            JSON.stringify({ error: "Database permission denied. Check RLS policies." }),
+            { status: 403 } // Forbidden
+         );
+      }
+      return new Response(
+        JSON.stringify({ error: "Database error: " + insertError.message }),
+        { status: 500 }
+      );
+    }
+
+    // 4. Return Success Response
+    return new Response(JSON.stringify(newOrder), { status: 201 }); // 201 Created
+
+  } catch (error: any) {
+    console.error("API /api/orders/create: Unexpected error", error);
+    return new Response(
+      JSON.stringify({ error: "An unexpected error occurred." }),
+      { status: 500 }
+    );
+  }
+};
 ```
 ---
 
