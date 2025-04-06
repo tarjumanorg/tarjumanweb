@@ -680,51 +680,6 @@ const title = "Sign In";
 ```
 ---
 
-`src/pages/api/guestbook.ts`:
-```
-import type { APIRoute } from "astro";
-import { supabase } from "../../lib/supabase";
-
-export const GET: APIRoute = async () => {
-  const { data, error } = await supabase
-    .from("guestbook")
-    .select("*")
-    .order("created_at", { ascending: true });
-
-  if (error) {
-    return new Response(
-      JSON.stringify({
-        error: error.message,
-      }),
-      { status: 500 },
-    );
-  }
-  
-  return new Response(JSON.stringify(data));
-};
-
-export const POST: APIRoute = async ({ request }) => {
-  const { name, message } = await request.json();
-  const { data, error } = await supabase
-    .from("guestbook")
-    .insert({ name, message })
-    .select();
-
-  if (error) {
-    return new Response(
-      JSON.stringify({
-        error: error.message,
-      }),
-      { status: 500 },
-    );
-  }
-
-  return new Response(JSON.stringify(data));
-};
-
-```
----
-
 `src/pages/api/auth/anonymous.ts`:
 ```
 // src/pages/api/auth/anonymous.ts
@@ -862,6 +817,51 @@ export const GET: APIRoute = async ({ cookies, redirect }) => {
   cookies.delete("sb-access-token", { path: "/" });
   cookies.delete("sb-refresh-token", { path: "/" });
   return redirect("/signin");
+};
+
+```
+---
+
+`src/pages/api/guestbook/index.ts`:
+```
+import type { APIRoute } from "astro";
+import { supabase } from "../../../lib/supabase";
+
+export const GET: APIRoute = async () => {
+  const { data, error } = await supabase
+    .from("guestbook")
+    .select("*")
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    return new Response(
+      JSON.stringify({
+        error: error.message,
+      }),
+      { status: 500 },
+    );
+  }
+  
+  return new Response(JSON.stringify(data));
+};
+
+export const POST: APIRoute = async ({ request }) => {
+  const { name, message } = await request.json();
+  const { data, error } = await supabase
+    .from("guestbook")
+    .insert({ name, message })
+    .select();
+
+  if (error) {
+    return new Response(
+      JSON.stringify({
+        error: error.message,
+      }),
+      { status: 500 },
+    );
+  }
+
+  return new Response(JSON.stringify(data));
 };
 
 ```
