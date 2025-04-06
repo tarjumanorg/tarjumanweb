@@ -1,8 +1,18 @@
 ---
 
+`.env`:
+```
+PUBLIC_SUPABASE_URL=https://blopbebmckbgyrpzisjt.supabase.co
+PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJsb3BiZWJtY2tiZ3lycHppc2p0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM0NzA5NDUsImV4cCI6MjA1OTA0Njk0NX0.4p-Q-k9oX5wEBy7tq57SFgjbw99WdNGjiBW3pE-RACI
+
+PUBLIC_TURNSTILE_SITE_KEY="0x4AAAAAABDz77Fkj-zw6ls4" # Publicly visible
+TURNSTILE_SECRET_KEY="0x4AAAAAABDz75OOEBihJZB-ORudV6xSR4E"
+```
+
+---
+
 `astro.config.mjs`:
 ```
-// @ts-check
 import { defineConfig } from 'astro/config';
 import netlify from '@astrojs/netlify';
 
@@ -97,10 +107,10 @@ const { reviews } = Astro.props;
     </button>
   </form>
 
-  <h3 class="text-lg font-semibold mb-3 dark:text-white">Guestbook Entries</h3>
+  <h3>Guestbook Entries</h3>
    <div id="reviews-list">
     {reviews.length > 0 ? (
-        <ul class="space-y-4">
+        <ul>
         {reviews.map((review) => (
             <li>
             <p>
@@ -161,7 +171,6 @@ const { reviews } = Astro.props;
       } catch (error: any) {
         console.error('Submission error:', error);
         statusDiv.textContent = `Error: ${error.message || 'Could not submit message.'}`;
-        statusDiv.classList.add('text-red-600', 'dark:text-red-400');
 
       } finally {
         submitButton.disabled = false;
@@ -229,11 +238,19 @@ const canonicalURL = new URL(Astro.url).href;
 
 `src/lib/supabase.ts`:
 ```
+// src/lib/supabase.ts
 import { createClient } from "@supabase/supabase-js";
 
+const supabaseUrl = import.meta.env.PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.PUBLIC_SUPABASE_ANON_KEY;
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error("Supabase URL or Anon Key is missing.");
+}
+
 export const supabase = createClient(
-  import.meta.env.SUPABASE_URL,
-  import.meta.env.SUPABASE_ANON_KEY,
+  supabaseUrl,
+  supabaseAnonKey,
   {
     auth: {
       flowType: "pkce",
@@ -243,7 +260,6 @@ export const supabase = createClient(
     },
   },
 );
-
 ```
 ---
 
@@ -308,14 +324,12 @@ export const onRequest = defineMiddleware(
         return redirect("/signin");
       }
 
-      // ... rest of your token validation logic ...
       const { data, error } = await supabase.auth.setSession({
         refresh_token: refreshToken.value,
         access_token: accessToken.value,
       });
 
       if (error) {
-        // Clear potentially invalid cookies
         cookies.delete("sb-access-token", { path: "/" });
         cookies.delete("sb-refresh-token", { path: "/" });
         return redirect("/signin");
@@ -325,14 +339,14 @@ export const onRequest = defineMiddleware(
       cookies.set("sb-access-token", data?.session?.access_token!, {
         sameSite: "strict",
         path: "/",
-        secure: true, // Keep secure: true for production
-        httpOnly: true // Consider adding httpOnly for access token if not needed client-side
+        secure: true,
+        httpOnly: true
       });
       cookies.set("sb-refresh-token", data?.session?.refresh_token!, {
         sameSite: "strict",
         path: "/",
-        secure: true, // Keep secure: true for production
-        httpOnly: true, // Refresh token should usually be httpOnly
+        secure: true,
+        httpOnly: true,
       });
     }
 
@@ -360,33 +374,26 @@ export const onRequest = defineMiddleware(
         return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
       }
 
-      const { error } = await supabase.auth.getUser(accessToken.value); // Use getUser for a quick check
+      const { error } = await supabase.auth.getUser(accessToken.value);
 
       if (error) {
-         // Attempt to refresh if getUser fails (could be expired token)
          if (refreshToken) {
             const { error: refreshError } = await supabase.auth.setSession({
                  refresh_token: refreshToken.value,
-                 access_token: accessToken.value, // Provide both for potential session update
+                 access_token: accessToken.value,
             });
              if (refreshError) {
-                 // Clear invalid cookies if refresh fails
                  cookies.delete("sb-access-token", { path: "/" });
                  cookies.delete("sb-refresh-token", { path: "/" });
                  return new Response(JSON.stringify({ error: "Unauthorized - Session Refresh Failed" }), { status: 401 });
              }
-             // If refresh succeeded, the tokens might have been updated by setSession.
              // Proceed carefully, maybe re-check or let the request handler proceed.
              // For simplicity here, we'll just proceed assuming setSession handles validity.
          } else {
-            // No refresh token available
             return new Response(JSON.stringify({ error: "Unauthorized - Invalid Token" }), { status: 401 });
          }
       }
-      // If getUser succeeded or refresh succeeded, proceed
     }
-
-    // If none of the conditions matched or validation passed, continue to the next middleware or page
     return next();
   },
 );
@@ -449,8 +456,6 @@ try {
 ```
 ---
 import Layout from "../layout/Layout.astro";
-import Supabase from "../icons/Supabase.astro";
-import AstroIcon from "../icons/AstroIcon.astro";
 export const prerender = true;
 const title = "Supabase and Astro Demo";
 ---
@@ -461,12 +466,10 @@ const title = "Supabase and Astro Demo";
     <ul>
       <li
       >
-        <AstroIcon />
       </li>
        &plus;
       <li
       >
-        <Supabase />
       </li>
     </ul>
     <p>This page was pre-rendered at build time</p>
