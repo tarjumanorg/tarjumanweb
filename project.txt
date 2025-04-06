@@ -473,9 +473,15 @@ const title = "Supabase and Astro Demo";
 import Layout from "../layout/Layout.astro";
 
 const title = "Place Your Order";
+// Your Turnstile Site Key (safe to be public)
+const turnstileSiteKey = "0x4AAAAAABDz77Fkj-zw6ls4";
 ---
 
 <Layout title={title}>
+  <head>
+    <!-- Add Turnstile script in the head -->
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" defer></script>
+  </head>
   <main>
     <section>
       <h1>{title}</h1>
@@ -493,6 +499,15 @@ const title = "Place Your Order";
           />
         </div>
 
+        <!-- Add the Turnstile Widget Div here -->
+        <div
+          class="cf-turnstile"
+          data-sitekey={turnstileSiteKey}
+          style="margin-top: 1rem;"
+        >
+        </div>
+        <!-- End Turnstile Widget Div -->
+
         <div id="order-status" aria-live="polite" style="margin-top: 1rem; min-height: 1.5em;">
           {/* Status messages will appear here */}
         </div>
@@ -507,17 +522,19 @@ const title = "Place Your Order";
 </Layout>
 
 <script>
-  // Import Supabase client - Ensure PUBLIC keys are used in supabase.ts
-  import { supabase } from '../lib/supabase';
+  // No changes needed for supabase import if you keep the server-side anonymous auth
+  // import { supabase } from '../lib/supabase';
 
   const form = document.getElementById('order-form') as HTMLFormElement | null;
   const nameInput = document.getElementById('orderer-name') as HTMLInputElement | null;
   const submitButton = document.getElementById('submit-order-button') as HTMLButtonElement | null;
   const statusDiv = document.getElementById('order-status');
+  // Implicit rendering adds a hidden input with this name
+  const turnstileResponseInputName = 'cf-turnstile-response';
 
   if (form && nameInput && submitButton && statusDiv) {
     form.addEventListener('submit', async (event) => {
-      event.preventDefault(); // Stop default form submission
+      event.preventDefault();
 
       const ordererName = nameInput.value.trim();
 
@@ -528,86 +545,97 @@ const title = "Place Your Order";
         return;
       }
 
-      // Disable button and show processing state
+      // --- Get the Turnstile token ---
+      const formData = new FormData(form);
+      const turnstileToken = formData.get(turnstileResponseInputName)?.toString();
+
+      if (!turnstileToken) {
+        statusDiv.textContent = 'CAPTCHA challenge failed or is missing. Please wait or refresh.';
+        statusDiv.style.color = 'red';
+        // Optionally reset the widget if you have its ID, or just prompt user
+        // turnstile.reset('#turnstile-widget-id'); // Requires explicit rendering or getting the ID
+        return;
+      }
+      // --- End Get Turnstile token ---
+
+
       submitButton.disabled = true;
       submitButton.textContent = 'Processing...';
       statusDiv.textContent = 'Processing your request...';
-      statusDiv.style.color = 'inherit'; // Reset color
+      statusDiv.style.color = 'inherit';
 
       try {
-        // 1. Check if already logged in
-        let { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        // 1. Ensure Authentication via Server Endpoint (from previous step)
+        statusDiv.textContent = 'Ensuring session...';
+        const authResponse = await fetch('/api/auth/anonymous', { method: 'POST' });
 
-        if (sessionError) {
-          console.error("Error checking session:", sessionError);
-          throw new Error("Could not check authentication status.");
+        if (!authResponse.ok) {
+           const errorData = await authResponse.json().catch(() => ({}));
+           console.error("Anonymous auth endpoint error:", authResponse.status, errorData);
+           throw new Error(errorData.error || `Authentication setup failed: Status ${authResponse.status}`);
         }
+        console.log("Session ensured via server endpoint.");
 
-        // 2. If not logged in, sign in anonymously
-        if (!session) {
-          statusDiv.textContent = 'Signing in anonymously...';
-          const { error: signInError } = await supabase.auth.signInAnonymously();
-
-          if (signInError) {
-            console.error("Anonymous sign-in error:", signInError);
-            throw new Error(`Anonymous sign-in failed: ${signInError.message}`);
-          }
-          console.log("Anonymous sign-in successful.");
-          // Re-fetch session data just to be sure (optional but good practice)
-          const { data: { session: newSession }, error: postSignInError } = await supabase.auth.getSession();
-          if (postSignInError || !newSession) {
-             console.error("Error fetching session after anonymous sign-in:", postSignInError);
-             throw new Error("Failed to confirm session after anonymous sign-in.");
-          }
-          session = newSession; // Use the confirmed session
-        } else {
-            console.log("User already has a session.");
-        }
-
-        // 3. Submit the order data (user is now guaranteed to be authenticated)
+        // 2. Submit the order data (including Turnstile token)
         statusDiv.textContent = 'Submitting order...';
 
-        const response = await fetch('/api/orders/create', {
+        const orderPayload = {
+          orderer_name: ordererName,
+          turnstileToken: turnstileToken // Include the token here
+        };
+
+        const orderResponse = await fetch('/api/orders/create', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
           },
-          body: JSON.stringify({ orderer_name: ordererName }),
+          body: JSON.stringify(orderPayload), // Send the payload including token
         });
 
-        // Check response status
-        if (!response.ok) {
-          let errorMsg = `HTTP error! Status: ${response.status}`;
+        if (!orderResponse.ok) {
+          let errorMsg = `HTTP error! Status: ${orderResponse.status}`;
           try {
-            // Try to parse error message from API response body
-            const errorData = await response.json();
-            errorMsg = errorData.error || errorMsg; // Use API error if available
-          } catch (parseError) {
-            // Ignore if response body is not JSON or empty
-          }
+            const errorData = await orderResponse.json();
+            errorMsg = errorData.error || errorMsg;
+          } catch (parseError) {}
           console.error("Order submission failed:", errorMsg);
+          if (orderResponse.status === 401) {
+            errorMsg = "Authorization failed. Please try refreshing the page.";
+          } else if (orderResponse.status === 403) { // Handle Turnstile failure explicitly
+             errorMsg = `CAPTCHA verification failed: ${errorMsg}. Please try again.`;
+          }
           throw new Error(`Order submission failed: ${errorMsg}`);
         }
 
-        // Order submitted successfully
-        const createdOrder = await response.json();
+        const createdOrder = await orderResponse.json();
         console.log("Order created:", createdOrder);
         statusDiv.textContent = `Order submitted successfully! Order ID: ${createdOrder.id}`;
         statusDiv.style.color = 'green';
-        form.reset(); // Clear the form
-
-        // Optional: Redirect or update UI further
-        // window.location.href = '/dashboard'; // Example redirect
+        form.reset();
+        // Reset Turnstile widget after successful submission (optional but good practice)
+        // Requires explicit rendering and storing widgetId, or targeting the element
+        try {
+          const widgetElement = form.querySelector('.cf-turnstile');
+          if (widgetElement && (window as any).turnstile) {
+             (window as any).turnstile.reset(widgetElement);
+          }
+        } catch(e) { console.warn("Could not reset Turnstile widget", e); }
 
 
       } catch (error: any) {
         console.error('Order process error:', error);
         statusDiv.textContent = `Error: ${error.message || 'An unexpected error occurred.'}`;
         statusDiv.style.color = 'red';
+        // Optionally reset Turnstile here too on error
+         try {
+           const widgetElement = form.querySelector('.cf-turnstile');
+           if (widgetElement && (window as any).turnstile) {
+              (window as any).turnstile.reset(widgetElement);
+           }
+         } catch(e) { console.warn("Could not reset Turnstile widget on error", e); }
 
       } finally {
-        // Re-enable the button regardless of success or failure
         submitButton.disabled = false;
         submitButton.textContent = 'Submit Order';
       }
@@ -694,6 +722,65 @@ export const POST: APIRoute = async ({ request }) => {
   return new Response(JSON.stringify(data));
 };
 
+```
+---
+
+`src/pages/api/auth/anonymous.ts`:
+```
+// src/pages/api/auth/anonymous.ts
+import type { APIRoute } from "astro";
+import { supabase } from "../../../lib/supabase"; // Adjust path if needed
+
+export const POST: APIRoute = async ({ cookies, redirect }) => {
+  // Check if user already has a valid session cookie (optional but good practice)
+  const existingAccessToken = cookies.get("sb-access-token");
+  const existingRefreshToken = cookies.get("sb-refresh-token");
+
+  if (existingAccessToken && existingRefreshToken) {
+     // Optional: Validate existing session quickly?
+     // For simplicity, if cookies exist, assume they might be valid or refreshable by middleware later.
+     // You could add a supabase.auth.getUser(existingAccessToken.value) check here if strictness is needed.
+     console.log("Anonymous sign-in skipped, existing session cookie found.");
+     return new Response(JSON.stringify({ message: "Already authenticated" }), { status: 200 });
+  }
+
+  console.log("Attempting server-side anonymous sign-in...");
+  // Perform anonymous sign-in on the server
+  const { data, error } = await supabase.auth.signInAnonymously();
+
+  if (error || !data?.session) {
+    console.error("Server-side anonymous sign-in error:", error);
+    return new Response(
+      JSON.stringify({ error: error?.message || "Anonymous sign-in failed" }),
+      { status: 500 }
+    );
+  }
+
+  console.log("Server-side anonymous sign-in successful. Setting cookies.");
+  const { access_token, refresh_token } = data.session;
+
+  // Set the HttpOnly cookies, mirroring the /api/auth/callback logic
+  cookies.set("sb-access-token", access_token, {
+    path: "/",
+    maxAge: data.session.expires_in ? data.session.expires_in : 60 * 60, // Use expires_in, default 1 hour
+    sameSite: "strict",
+    secure: import.meta.env.PROD, // Use secure cookies in production
+    httpOnly: true,
+  });
+  cookies.set("sb-refresh-token", refresh_token, {
+    path: "/",
+    maxAge: 60 * 60 * 24 * 7, // Example: 7 days validity for refresh token
+    sameSite: "strict",
+    secure: import.meta.env.PROD, // Use secure cookies in production
+    httpOnly: true,
+  });
+
+  // Return a success response to the client
+  return new Response(
+    JSON.stringify({ message: "Anonymous sign-in successful", userId: data.user?.id }), // Optionally return user ID
+    { status: 200 }
+  );
+};
 ```
 ---
 
@@ -786,16 +873,39 @@ export const GET: APIRoute = async ({ cookies, redirect }) => {
 import type { APIRoute } from "astro";
 import { supabase } from "../../../lib/supabase";
 
-export const POST: APIRoute = async ({ request, cookies }) => {
-  // 1. Get submitted data
+// --- Turnstile Siteverify Endpoint ---
+const TURNSTILE_VERIFY_ENDPOINT = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
+const TURNSTILE_SECRET_KEY = import.meta.env.TURNSTILE_SECRET_KEY;
+// --- End Turnstile ---
+
+
+export const POST: APIRoute = async ({ request, cookies, clientAddress }) => { // Added clientAddress
+
+  if (!TURNSTILE_SECRET_KEY) {
+      console.error("API /api/orders/create: TURNSTILE_SECRET_KEY is not set in environment variables.");
+      return new Response(
+          JSON.stringify({ error: "Server configuration error: Missing CAPTCHA secret." }),
+          { status: 500 }
+      );
+  }
+
+  // 1. Get submitted data (including Turnstile token)
   let ordererName: string | undefined;
+  let turnstileToken: string | undefined;
   try {
     const data = await request.json();
-    ordererName = data.orderer_name?.toString().trim(); // Basic sanitization
+    ordererName = data.orderer_name?.toString().trim();
+    turnstileToken = data.turnstileToken?.toString(); // Get the token from payload
 
     if (!ordererName) {
       return new Response(
         JSON.stringify({ error: "Orderer name is required." }),
+        { status: 400 }
+      );
+    }
+    if (!turnstileToken) {
+      return new Response(
+        JSON.stringify({ error: "CAPTCHA token is missing." }),
         { status: 400 }
       );
     }
@@ -806,50 +916,96 @@ export const POST: APIRoute = async ({ request, cookies }) => {
     );
   }
 
+  // --- 2. Verify Turnstile Token ---
+  try {
+      const verifyPayload = new URLSearchParams(); // Use URLSearchParams for form-encoded data
+      verifyPayload.append('secret', TURNSTILE_SECRET_KEY);
+      verifyPayload.append('response', turnstileToken);
+      // Optionally add remoteip - Recommended for extra security
+      // Astro's clientAddress gives the direct connecting IP, which might be Netlify's proxy.
+      // If using Netlify, check request headers like 'x-nf-client-connection-ip'
+      const forwardedIp = request.headers.get('x-nf-client-connection-ip');
+      const remoteIp = forwardedIp || clientAddress; // Use forwarded IP if available, else direct clientAddress
+      if (remoteIp) {
+          verifyPayload.append('remoteip', remoteIp);
+          console.log("Verifying Turnstile with remoteip:", remoteIp);
+      } else {
+          console.log("Verifying Turnstile without remoteip.");
+      }
 
-  // 2. Verify authentication and get user ID (Middleware should have run, but double-check)
+
+      const verifyResponse = await fetch(TURNSTILE_VERIFY_ENDPOINT, {
+          method: 'POST',
+          body: verifyPayload, // Send as form data
+          headers: {
+              // 'Content-Type': 'application/x-www-form-urlencoded' // fetch sets this automatically for URLSearchParams
+          }
+      });
+
+      const verifyOutcome = await verifyResponse.json();
+
+      console.log("Turnstile verification outcome:", verifyOutcome);
+
+      if (!verifyOutcome.success) {
+          console.warn("API /api/orders/create: Turnstile verification failed.", verifyOutcome['error-codes']);
+          return new Response(
+              JSON.stringify({
+                  error: "CAPTCHA verification failed.",
+                  codes: verifyOutcome['error-codes'] || []
+              }),
+              { status: 403 } // 403 Forbidden is appropriate for failed CAPTCHA
+          );
+      }
+      // Turnstile validation passed! Proceed...
+      console.log("Turnstile verification successful for hostname:", verifyOutcome.hostname);
+
+  } catch (error: any) {
+      console.error("API /api/orders/create: Error during Turnstile verification", error);
+      return new Response(
+          JSON.stringify({ error: "Failed to verify CAPTCHA." }),
+          { status: 500 }
+      );
+  }
+  // --- End Turnstile Verification ---
+
+
+  // 3. Verify authentication and get user ID (Middleware should have run)
   const accessToken = cookies.get("sb-access-token");
 
   if (!accessToken) {
-    // This shouldn't happen if middleware is working, but belt-and-suspenders
-    return new Response(JSON.stringify({ error: "Unauthorized: Missing token" }), { status: 401 });
+    // This check might be redundant if the anonymous auth endpoint always runs first,
+    // but good for robustness if someone calls the API directly without going through the page flow.
+    return new Response(JSON.stringify({ error: "Unauthorized: Missing token after CAPTCHA" }), { status: 401 });
   }
 
   const { data: { user }, error: userError } = await supabase.auth.getUser(accessToken.value);
 
   if (userError || !user) {
-    console.error("API /api/orders/create: Error getting user", userError);
-    // Optionally attempt refresh here? Middleware should handle this primarily.
-    // For simplicity in the API route, we'll rely on middleware validation.
-    return new Response(JSON.stringify({ error: "Unauthorized: Invalid session" }), { status: 401 });
+    console.error("API /api/orders/create: Error getting user after CAPTCHA", userError);
+    return new Response(JSON.stringify({ error: "Unauthorized: Invalid session after CAPTCHA" }), { status: 401 });
   }
 
   const userId = user.id;
 
-  // 3. Insert into Database
+  // 4. Insert into Database
   try {
     const { data: newOrder, error: insertError } = await supabase
       .from("orders")
       .insert({
         user_id: userId,
         orderer_name: ordererName,
-        status: "pending", // Set a default status
-        // Add defaults for other required fields if necessary, or handle nulls
-        // page_count: 0,
-        // total_price: 0,
-        // package_tier: 'default',
-        // uploaded_file_urls: []
+        status: "pending",
+        // other fields...
       })
-      .select() // Return the created row
-      .single(); // Expect only one row back
+      .select()
+      .single();
 
     if (insertError) {
       console.error("API /api/orders/create: Supabase insert error", insertError);
-      // Check for specific errors, e.g., RLS violation
-      if (insertError.code === '42501') { // RLS violation code
+      if (insertError.code === '42501') {
          return new Response(
             JSON.stringify({ error: "Database permission denied. Check RLS policies." }),
-            { status: 403 } // Forbidden
+            { status: 403 }
          );
       }
       return new Response(
@@ -858,11 +1014,11 @@ export const POST: APIRoute = async ({ request, cookies }) => {
       );
     }
 
-    // 4. Return Success Response
-    return new Response(JSON.stringify(newOrder), { status: 201 }); // 201 Created
+    // 5. Return Success Response
+    return new Response(JSON.stringify(newOrder), { status: 201 });
 
   } catch (error: any) {
-    console.error("API /api/orders/create: Unexpected error", error);
+    console.error("API /api/orders/create: Unexpected error during DB insert", error);
     return new Response(
       JSON.stringify({ error: "An unexpected error occurred." }),
       { status: 500 }
