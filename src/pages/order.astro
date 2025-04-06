@@ -3,9 +3,15 @@
 import Layout from "../layout/Layout.astro";
 
 const title = "Place Your Order";
+// Your Turnstile Site Key (safe to be public)
+const turnstileSiteKey = "0x4AAAAAABDz77Fkj-zw6ls4";
 ---
 
 <Layout title={title}>
+  <head>
+    <!-- Add Turnstile script in the head -->
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" defer></script>
+  </head>
   <main>
     <section>
       <h1>{title}</h1>
@@ -23,6 +29,15 @@ const title = "Place Your Order";
           />
         </div>
 
+        <!-- Add the Turnstile Widget Div here -->
+        <div
+          class="cf-turnstile"
+          data-sitekey={turnstileSiteKey}
+          style="margin-top: 1rem;"
+        >
+        </div>
+        <!-- End Turnstile Widget Div -->
+
         <div id="order-status" aria-live="polite" style="margin-top: 1rem; min-height: 1.5em;">
           {/* Status messages will appear here */}
         </div>
@@ -37,100 +52,125 @@ const title = "Place Your Order";
 </Layout>
 
 <script>
-    import { supabase } from '../lib/supabase'; // Keep this for potential getSession check if desired
-  
-    const form = document.getElementById('order-form') as HTMLFormElement | null;
-    const nameInput = document.getElementById('orderer-name') as HTMLInputElement | null;
-    const submitButton = document.getElementById('submit-order-button') as HTMLButtonElement | null;
-    const statusDiv = document.getElementById('order-status');
-  
-    // Helper function to check if session cookies likely exist client-side
-    // Note: This is an approximation as JS can't read HttpOnly cookies directly
-    function hasSessionCookies(): boolean {
-      // A simple check: Supabase often sets non-HttpOnly helper cookies or items
-      // Alternatively, rely entirely on the server endpoint to check
-      // return document.cookie.includes('sb-'); // Simple check
-      return false; // Let's rely on the server endpoint to check cookies for simplicity
-    }
-  
-  
-    if (form && nameInput && submitButton && statusDiv) {
-      form.addEventListener('submit', async (event) => {
-        event.preventDefault();
-  
-        const ordererName = nameInput.value.trim();
-  
-        if (!ordererName) {
-          statusDiv.textContent = 'Please enter your name.';
-          statusDiv.style.color = 'red';
-          nameInput.focus();
-          return;
+  // No changes needed for supabase import if you keep the server-side anonymous auth
+  // import { supabase } from '../lib/supabase';
+
+  const form = document.getElementById('order-form') as HTMLFormElement | null;
+  const nameInput = document.getElementById('orderer-name') as HTMLInputElement | null;
+  const submitButton = document.getElementById('submit-order-button') as HTMLButtonElement | null;
+  const statusDiv = document.getElementById('order-status');
+  // Implicit rendering adds a hidden input with this name
+  const turnstileResponseInputName = 'cf-turnstile-response';
+
+  if (form && nameInput && submitButton && statusDiv) {
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+
+      const ordererName = nameInput.value.trim();
+
+      if (!ordererName) {
+        statusDiv.textContent = 'Please enter your name.';
+        statusDiv.style.color = 'red';
+        nameInput.focus();
+        return;
+      }
+
+      // --- Get the Turnstile token ---
+      const formData = new FormData(form);
+      const turnstileToken = formData.get(turnstileResponseInputName)?.toString();
+
+      if (!turnstileToken) {
+        statusDiv.textContent = 'CAPTCHA challenge failed or is missing. Please wait or refresh.';
+        statusDiv.style.color = 'red';
+        // Optionally reset the widget if you have its ID, or just prompt user
+        // turnstile.reset('#turnstile-widget-id'); // Requires explicit rendering or getting the ID
+        return;
+      }
+      // --- End Get Turnstile token ---
+
+
+      submitButton.disabled = true;
+      submitButton.textContent = 'Processing...';
+      statusDiv.textContent = 'Processing your request...';
+      statusDiv.style.color = 'inherit';
+
+      try {
+        // 1. Ensure Authentication via Server Endpoint (from previous step)
+        statusDiv.textContent = 'Ensuring session...';
+        const authResponse = await fetch('/api/auth/anonymous', { method: 'POST' });
+
+        if (!authResponse.ok) {
+           const errorData = await authResponse.json().catch(() => ({}));
+           console.error("Anonymous auth endpoint error:", authResponse.status, errorData);
+           throw new Error(errorData.error || `Authentication setup failed: Status ${authResponse.status}`);
         }
-  
-        submitButton.disabled = true;
-        submitButton.textContent = 'Processing...';
-        statusDiv.textContent = 'Processing your request...';
-        statusDiv.style.color = 'inherit';
-  
+        console.log("Session ensured via server endpoint.");
+
+        // 2. Submit the order data (including Turnstile token)
+        statusDiv.textContent = 'Submitting order...';
+
+        const orderPayload = {
+          orderer_name: ordererName,
+          turnstileToken: turnstileToken // Include the token here
+        };
+
+        const orderResponse = await fetch('/api/orders/create', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: JSON.stringify(orderPayload), // Send the payload including token
+        });
+
+        if (!orderResponse.ok) {
+          let errorMsg = `HTTP error! Status: ${orderResponse.status}`;
+          try {
+            const errorData = await orderResponse.json();
+            errorMsg = errorData.error || errorMsg;
+          } catch (parseError) {}
+          console.error("Order submission failed:", errorMsg);
+          if (orderResponse.status === 401) {
+            errorMsg = "Authorization failed. Please try refreshing the page.";
+          } else if (orderResponse.status === 403) { // Handle Turnstile failure explicitly
+             errorMsg = `CAPTCHA verification failed: ${errorMsg}. Please try again.`;
+          }
+          throw new Error(`Order submission failed: ${errorMsg}`);
+        }
+
+        const createdOrder = await orderResponse.json();
+        console.log("Order created:", createdOrder);
+        statusDiv.textContent = `Order submitted successfully! Order ID: ${createdOrder.id}`;
+        statusDiv.style.color = 'green';
+        form.reset();
+        // Reset Turnstile widget after successful submission (optional but good practice)
+        // Requires explicit rendering and storing widgetId, or targeting the element
         try {
-          // 1. Ensure Authentication via Server Endpoint
-          statusDiv.textContent = 'Ensuring session...';
-  
-          // Call our NEW server endpoint to handle anonymous sign-in and set cookies
-          const authResponse = await fetch('/api/auth/anonymous', { method: 'POST' });
-  
-          if (!authResponse.ok) {
-             const errorData = await authResponse.json().catch(() => ({})); // Try parsing error
-             console.error("Anonymous auth endpoint error:", authResponse.status, errorData);
-             throw new Error(errorData.error || `Authentication setup failed: Status ${authResponse.status}`);
+          const widgetElement = form.querySelector('.cf-turnstile');
+          if (widgetElement && (window as any).turnstile) {
+             (window as any).turnstile.reset(widgetElement);
           }
-  
-          console.log("Session ensured via server endpoint.");
-          // Now the HttpOnly cookies should be set by the server
-  
-          // 2. Submit the order data (cookies will be sent automatically)
-          statusDiv.textContent = 'Submitting order...';
-  
-          const orderResponse = await fetch('/api/orders/create', { // Corrected variable name
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-            },
-            body: JSON.stringify({ orderer_name: ordererName }),
-          });
-  
-          if (!orderResponse.ok) {
-            let errorMsg = `HTTP error! Status: ${orderResponse.status}`;
-            try {
-              const errorData = await orderResponse.json();
-              errorMsg = errorData.error || errorMsg;
-            } catch (parseError) {}
-            console.error("Order submission failed:", errorMsg);
-            // Check specifically for 401 again, though it shouldn't happen now if auth endpoint worked
-            if (orderResponse.status === 401) {
-              errorMsg = "Authorization failed. Please try refreshing the page.";
-            }
-            throw new Error(`Order submission failed: ${errorMsg}`);
-          }
-  
-          const createdOrder = await orderResponse.json();
-          console.log("Order created:", createdOrder);
-          statusDiv.textContent = `Order submitted successfully! Order ID: ${createdOrder.id}`;
-          statusDiv.style.color = 'green';
-          form.reset();
-  
-        } catch (error: any) {
-          console.error('Order process error:', error);
-          statusDiv.textContent = `Error: ${error.message || 'An unexpected error occurred.'}`;
-          statusDiv.style.color = 'red';
-  
-        } finally {
-          submitButton.disabled = false;
-          submitButton.textContent = 'Submit Order';
-        }
-      });
-    } else {
-      console.error('Could not find all required elements for the order form script.');
-    }
-  </script>
+        } catch(e) { console.warn("Could not reset Turnstile widget", e); }
+
+
+      } catch (error: any) {
+        console.error('Order process error:', error);
+        statusDiv.textContent = `Error: ${error.message || 'An unexpected error occurred.'}`;
+        statusDiv.style.color = 'red';
+        // Optionally reset Turnstile here too on error
+         try {
+           const widgetElement = form.querySelector('.cf-turnstile');
+           if (widgetElement && (window as any).turnstile) {
+              (window as any).turnstile.reset(widgetElement);
+           }
+         } catch(e) { console.warn("Could not reset Turnstile widget on error", e); }
+
+      } finally {
+        submitButton.disabled = false;
+        submitButton.textContent = 'Submit Order';
+      }
+    });
+  } else {
+    console.error('Could not find all required elements for the order form script.');
+  }
+</script>
