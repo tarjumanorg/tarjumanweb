@@ -257,14 +257,12 @@ export const supabase = createClient(
 // src/middleware/index.ts
 import { defineMiddleware } from "astro:middleware";
 import { supabase } from "../lib/supabase";
+import { setAuthCookies, deleteAuthCookies } from '../utils/auth';
 
-// Define routes clearly
 const protectedPaths = ["/dashboard"];
-const redirectPaths = ["/signin", "/register"]; // Assuming you might add /register later
-// Add the new API route for creating orders
-const protectedAPIPaths = ["/api/guestbook", "/api/orders/create"]; // <-- ADDED HERE
+const redirectPaths = ["/signin"];
+const protectedAPIPaths = ["/api/guestbook", "/api/orders/create"];
 
-// Helper function to check paths, handling optional trailing slash
 function matchesPath(pathname: string, pathsToCheck: string[]): boolean {
   const normalizedPathname = pathname.endsWith('/') && pathname.length > 1
     ? pathname.slice(0, -1)
@@ -282,6 +280,7 @@ export const onRequest = defineMiddleware(
       const refreshToken = cookies.get("sb-refresh-token");
 
       if (!accessToken || !refreshToken) {
+        console.log("Middleware: No tokens for protected route, redirecting to signin.");
         return redirect("/signin");
       }
 
@@ -290,28 +289,16 @@ export const onRequest = defineMiddleware(
         access_token: accessToken.value,
       });
 
-      if (error) {
-        cookies.delete("sb-access-token", { path: "/" });
-        cookies.delete("sb-refresh-token", { path: "/" });
+      if (error || !data.session) {
+        console.log("Middleware: setSession failed for protected route, deleting cookies and redirecting.", error?.message);
+        deleteAuthCookies(cookies);
         return redirect("/signin");
       }
 
-      // Store email in locals for dashboard page
       locals.email = data.user?.email!;
 
-      // Refresh cookies with potentially new tokens and ensure flags are set
-      cookies.set("sb-access-token", data?.session?.access_token!, {
-        sameSite: "strict",
-        path: "/",
-        secure: import.meta.env.PROD, // Use secure cookies in production
-        httpOnly: true
-      });
-      cookies.set("sb-refresh-token", data?.session?.refresh_token!, {
-        sameSite: "strict",
-        path: "/",
-        secure: import.meta.env.PROD, // Use secure cookies in production
-        httpOnly: true,
-      });
+      console.log("Middleware: Session validated/refreshed for protected route, setting cookies.");
+      setAuthCookies(cookies, data.session);
     }
 
     const isRedirectRoute = matchesPath(url.pathname, redirectPaths);
@@ -321,10 +308,14 @@ export const onRequest = defineMiddleware(
       const refreshToken = cookies.get("sb-refresh-token");
 
       if (accessToken && refreshToken) {
-        // Optional: Quick validation before redirecting?
-        // For simplicity, just redirect if tokens exist.
-        // A robust check might involve supabase.auth.getUser(accessToken.value)
-        return redirect("/dashboard");
+        const { data: { user } } = await supabase.auth.getUser(accessToken.value);
+        if(user) {
+          console.log("Middleware: User already logged in, redirecting from signin/register to dashboard.");
+          return redirect("/dashboard");
+        } else {
+           console.log("Middleware: User has tokens but token is invalid, clearing cookies on redirect path.");
+           deleteAuthCookies(cookies);
+        }
       }
     }
 
@@ -332,55 +323,50 @@ export const onRequest = defineMiddleware(
 
     if (isProtectedAPIRoute) {
       const accessToken = cookies.get("sb-access-token");
-      const refreshToken = cookies.get("sb-refresh-token"); // Keep refresh token check for robustness
+      const refreshToken = cookies.get("sb-refresh-token");
 
-      if (!accessToken) { // Primarily check access token for API calls
+      if (!accessToken) {
          console.log("Middleware: No access token for protected API route");
          return new Response(JSON.stringify({ error: "Unauthorized: Missing token" }), { status: 401 });
       }
 
-      // Validate the access token
       const { data: { user }, error } = await supabase.auth.getUser(accessToken.value);
 
       if (error || !user) {
         console.log("Middleware: Invalid/Expired token for API route.", error?.message);
-        // Attempt refresh only if refresh token exists (though less common for API calls)
+
         if (refreshToken) {
+           console.log("Middleware: Attempting token refresh for API route.");
            const { data: refreshData , error: refreshError } = await supabase.auth.setSession({
                 refresh_token: refreshToken.value,
-                access_token: accessToken.value, // Include access token for potential validation
+                access_token: accessToken.value,
            });
 
             if (refreshError || !refreshData.session) {
-                console.log("Middleware: Session refresh failed for API route.");
-                cookies.delete("sb-access-token", { path: "/" });
-                cookies.delete("sb-refresh-token", { path: "/" });
+                console.log("Middleware: Session refresh failed for API route. Deleting cookies.");
+                deleteAuthCookies(cookies);
+
                 return new Response(JSON.stringify({ error: "Unauthorized: Session Refresh Failed" }), { status: 401 });
             }
 
-             // If refresh worked, set new cookies (important!) and proceed
-             console.log("Middleware: Session refreshed successfully for API route.");
-             cookies.set("sb-access-token", refreshData.session.access_token, {
-               sameSite: "strict", path: "/", secure: import.meta.env.PROD, httpOnly: true
-             });
-             cookies.set("sb-refresh-token", refreshData.session.refresh_token, {
-               sameSite: "strict", path: "/", secure: import.meta.env.PROD, httpOnly: true
-             });
-             // We *could* store the user ID in locals here if needed by multiple API endpoints
-             // locals.userId = refreshData.user.id;
-             return next(); // Proceed with the refreshed session
+             console.log("Middleware: Session refreshed successfully for API route. Setting cookies.");
+             setAuthCookies(cookies, refreshData.session);
+
+             return next();
         } else {
-            // No refresh token, definitely unauthorized
-            cookies.delete("sb-access-token", { path: "/" }); // Clean up invalid token
+
+             console.log("Middleware: Invalid token for API route and no refresh token found. Deleting cookie.");
+            deleteAuthCookies(cookies);
             return new Response(JSON.stringify({ error: "Unauthorized: Invalid Token" }), { status: 401 });
         }
       }
+      
       // If token is valid, proceed.
+      console.log("Middleware: Valid token found for protected API route.");
       // We *could* store the user ID in locals here if needed by multiple API endpoints
       // locals.userId = user.id;
     }
 
-    // If none of the above conditions were met, proceed to the route handler
     return next();
   },
 );
@@ -685,8 +671,9 @@ const title = "Sign In";
 // src/pages/api/auth/anonymous.ts
 import type { APIRoute } from "astro";
 import { supabase } from "../../../lib/supabase"; // Adjust path if needed
+import { setAuthCookies } from '../../../utils/auth'; // <-- IMPORT ADDED
 
-export const POST: APIRoute = async ({ cookies, redirect }) => {
+export const POST: APIRoute = async ({ cookies }) => { // Removed redirect as it's not used
   // Check if user already has a valid session cookie (optional but good practice)
   const existingAccessToken = cookies.get("sb-access-token");
   const existingRefreshToken = cookies.get("sb-refresh-token");
@@ -696,7 +683,14 @@ export const POST: APIRoute = async ({ cookies, redirect }) => {
      // For simplicity, if cookies exist, assume they might be valid or refreshable by middleware later.
      // You could add a supabase.auth.getUser(existingAccessToken.value) check here if strictness is needed.
      console.log("Anonymous sign-in skipped, existing session cookie found.");
-     return new Response(JSON.stringify({ message: "Already authenticated" }), { status: 200 });
+     // Let's verify the existing token before skipping
+     const { data: { user } } = await supabase.auth.getUser(existingAccessToken.value);
+     if (user) {
+        console.log("Existing anonymous session is valid.");
+        return new Response(JSON.stringify({ message: "Already authenticated anonymously" }), { status: 200 });
+     } else {
+        console.log("Existing anonymous session token is invalid, proceeding with sign-in.");
+     }
   }
 
   console.log("Attempting server-side anonymous sign-in...");
@@ -712,25 +706,10 @@ export const POST: APIRoute = async ({ cookies, redirect }) => {
   }
 
   console.log("Server-side anonymous sign-in successful. Setting cookies.");
-  const { access_token, refresh_token } = data.session;
 
-  // Set the HttpOnly cookies, mirroring the /api/auth/callback logic
-  cookies.set("sb-access-token", access_token, {
-    path: "/",
-    maxAge: data.session.expires_in ? data.session.expires_in : 60 * 60, // Use expires_in, default 1 hour
-    sameSite: "strict",
-    secure: import.meta.env.PROD, // Use secure cookies in production
-    httpOnly: true,
-  });
-  cookies.set("sb-refresh-token", refresh_token, {
-    path: "/",
-    maxAge: 60 * 60 * 24 * 7, // Example: 7 days validity for refresh token
-    sameSite: "strict",
-    secure: import.meta.env.PROD, // Use secure cookies in production
-    httpOnly: true,
-  });
+  // Set cookies using the utility function
+  setAuthCookies(cookies, data.session); // <-- REPLACED manual cookies.set calls
 
-  // Return a success response to the client
   return new Response(
     JSON.stringify({ message: "Anonymous sign-in successful", userId: data.user?.id }), // Optionally return user ID
     { status: 200 }
@@ -743,6 +722,7 @@ export const POST: APIRoute = async ({ cookies, redirect }) => {
 ```
 import type { APIRoute } from "astro";
 import { supabase } from "../../../lib/supabase";
+import { setAuthCookies } from '../../../utils/auth';
 
 export const GET: APIRoute = async ({ url, cookies, redirect }) => {
   const authCode = url.searchParams.get("code");
@@ -754,24 +734,19 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
   const { data, error } = await supabase.auth.exchangeCodeForSession(authCode);
 
   if (error) {
+    console.error("Auth Callback Error:", error.message);
     return new Response(error.message, { status: 500 });
   }
 
-  const { access_token, refresh_token } = data.session;
+  if (!data.session) {
+      console.error("Auth Callback Error: No session data returned after code exchange.");
+      return new Response("Failed to establish session.", { status: 500});
+  }
 
-  cookies.set("sb-access-token", access_token, {
-    path: "/",
-    secure: true,
-    httpOnly: true,
-  });
-  cookies.set("sb-refresh-token", refresh_token, {
-    path: "/",
-    secure: true,
-    httpOnly: true,
-  });
+  setAuthCookies(cookies, data.session);
+
   return redirect("/dashboard");
 };
-
 ```
 ---
 
@@ -824,46 +799,103 @@ export const GET: APIRoute = async ({ cookies, redirect }) => {
 
 `src/pages/api/guestbook/index.ts`:
 ```
+// src/pages/api/guestbook/index.ts
 import type { APIRoute } from "astro";
-import { supabase } from "../../../lib/supabase";
+// Import the SERVICE functions, NOT the supabase client directly for DB operations
+import { getAllGuestbookEntries, createGuestbookEntry } from "../../../services/guestbook.service";
+import type { GuestbookEntry } from "../../../types/types"; // Import type for request body validation
 
 export const GET: APIRoute = async () => {
-  const { data, error } = await supabase
-    .from("guestbook")
-    .select("*")
-    .order("created_at", { ascending: true });
+  console.log("API Route: GET /api/guestbook invoked.");
+  try {
+    // Call the service function to get data
+    const entries = await getAllGuestbookEntries();
 
-  if (error) {
+    // API route focuses on the HTTP response
+    return new Response(JSON.stringify(entries), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+    });
+  } catch (error: any) {
+    console.error("API Error (GET /api/guestbook):", error.message);
+    // Return a generic server error response (avoid leaking detailed errors)
     return new Response(
-      JSON.stringify({
-        error: error.message,
-      }),
-      { status: 500 },
+      JSON.stringify({ error: "Failed to retrieve guestbook entries." }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }
-  
-  return new Response(JSON.stringify(data));
 };
 
 export const POST: APIRoute = async ({ request }) => {
-  const { name, message } = await request.json();
-  const { data, error } = await supabase
-    .from("guestbook")
-    .insert({ name, message })
-    .select();
+  console.log("API Route: POST /api/guestbook invoked.");
+  try {
+    // 1. Parse and validate request body at the API level
+    let name: string;
+    let message: string;
+    try {
+        // Ensure body is valid JSON and has the expected fields
+        const body: Partial<GuestbookEntry> = await request.json();
+        name = body.name?.toString() ?? ''; // Use nullish coalescing for safety
+        message = body.message?.toString() ?? '';
 
-  if (error) {
+        // Basic presence check (more specific validation is in the service)
+        if (!name || !message) {
+            console.log("API Error: Missing name or message in request body.");
+            return new Response(JSON.stringify({ error: "Bad Request: Name and message are required."}), {
+                 status: 400,
+                 headers: { 'Content-Type': 'application/json' }
+            });
+        }
+    } catch (e) {
+        console.log("API Error: Invalid JSON body received.");
+        return new Response(JSON.stringify({ error: "Bad Request: Invalid JSON body."}), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' }
+        });
+    }
+
+    // 2. Call the service function to perform the action
+    // The service handles its own validation and database logic
+    const newEntry = await createGuestbookEntry(name, message);
+
+    // 3. Return the successful HTTP response
+    console.log("API Route: Guestbook entry created successfully.");
+    return new Response(JSON.stringify(newEntry), {
+        status: 201, // 201 Created is appropriate for successful POST
+        headers: { 'Content-Type': 'application/json' }
+    });
+
+  } catch (error: any) {
+    console.error("API Error (POST /api/guestbook):", error.message);
+
+    // Handle specific errors thrown by the service
+    if (error.message.startsWith("Validation Error:")) {
+         return new Response( JSON.stringify({ error: `Bad Request: ${error.message}` }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' }
+         });
+    }
+    if (error.message.startsWith("Permission Denied:")) {
+         return new Response( JSON.stringify({ error: error.message }), {
+            status: 403, // Forbidden
+            headers: { 'Content-Type': 'application/json' }
+         });
+    }
+     if (error.message.startsWith("Database Error:")) {
+         // Log the specific DB error but return a generic 500 to the client
+         return new Response( JSON.stringify({ error: "Failed to submit guestbook entry due to a server error." }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' }
+         });
+     }
+
+    // Fallback for unexpected errors
     return new Response(
-      JSON.stringify({
-        error: error.message,
-      }),
-      { status: 500 },
+      JSON.stringify({ error: "An unexpected error occurred while submitting the guestbook entry." }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }
-
-  return new Response(JSON.stringify(data));
 };
-
 ```
 ---
 
@@ -871,169 +903,399 @@ export const POST: APIRoute = async ({ request }) => {
 ```
 // src/pages/api/orders/create.ts
 import type { APIRoute } from "astro";
-import { supabase } from "../../../lib/supabase";
+import { supabase } from "../../../lib/supabase"; // Keep for auth check ONLY
+// Import the SERVICE function for database interaction
+import { createOrder } from "../../../services/order.service";
+import type { Order } from "../../../types/types"; // Import type if needed for request validation
 
-// --- Turnstile Siteverify Endpoint ---
+// --- Turnstile Configuration ---
 const TURNSTILE_VERIFY_ENDPOINT = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
 const TURNSTILE_SECRET_KEY = import.meta.env.TURNSTILE_SECRET_KEY;
 // --- End Turnstile ---
 
+export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
+  console.log("API Route: POST /api/orders/create invoked.");
 
-export const POST: APIRoute = async ({ request, cookies, clientAddress }) => { // Added clientAddress
-
+  // --- Environment Variable Check ---
   if (!TURNSTILE_SECRET_KEY) {
-      console.error("API /api/orders/create: TURNSTILE_SECRET_KEY is not set in environment variables.");
+      console.error("API Error: TURNSTILE_SECRET_KEY is not set.");
       return new Response(
-          JSON.stringify({ error: "Server configuration error: Missing CAPTCHA secret." }),
-          { status: 500 }
+          JSON.stringify({ error: "Server configuration error: CAPTCHA secret missing." }),
+          { status: 500, headers: { 'Content-Type': 'application/json' } }
       );
   }
 
-  // 1. Get submitted data (including Turnstile token)
+  // --- 1. Parse Request Body ---
   let ordererName: string | undefined;
   let turnstileToken: string | undefined;
   try {
-    const data = await request.json();
-    ordererName = data.orderer_name?.toString().trim();
-    turnstileToken = data.turnstileToken?.toString(); // Get the token from payload
+    // Define expected body structure (optional but good practice)
+    interface OrderRequestBody {
+        orderer_name?: string;
+        turnstileToken?: string;
+    }
+    const body: OrderRequestBody = await request.json();
+    ordererName = body.orderer_name?.toString();
+    turnstileToken = body.turnstileToken?.toString();
 
     if (!ordererName) {
-      return new Response(
-        JSON.stringify({ error: "Orderer name is required." }),
-        { status: 400 }
-      );
+        console.log("API Error: Missing orderer_name in request body.");
+        return new Response(JSON.stringify({ error: "Bad Request: Orderer name is required." }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     }
     if (!turnstileToken) {
-      return new Response(
-        JSON.stringify({ error: "CAPTCHA token is missing." }),
-        { status: 400 }
-      );
+        console.log("API Error: Missing turnstileToken in request body.");
+        return new Response(JSON.stringify({ error: "Bad Request: CAPTCHA token is missing." }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     }
   } catch (error) {
-    return new Response(
-      JSON.stringify({ error: "Invalid request body. Expected JSON." }),
-      { status: 400 }
-    );
+    console.log("API Error: Invalid JSON body received.");
+    return new Response(JSON.stringify({ error: "Bad Request: Invalid JSON body." }), { status: 400, headers: { 'Content-Type': 'application/json' } });
   }
 
   // --- 2. Verify Turnstile Token ---
   try {
-      const verifyPayload = new URLSearchParams(); // Use URLSearchParams for form-encoded data
+      console.log("API Route: Verifying Turnstile token...");
+      const verifyPayload = new URLSearchParams();
       verifyPayload.append('secret', TURNSTILE_SECRET_KEY);
       verifyPayload.append('response', turnstileToken);
-      // Optionally add remoteip - Recommended for extra security
-      // Astro's clientAddress gives the direct connecting IP, which might be Netlify's proxy.
-      // If using Netlify, check request headers like 'x-nf-client-connection-ip'
+
       const forwardedIp = request.headers.get('x-nf-client-connection-ip');
-      const remoteIp = forwardedIp || clientAddress; // Use forwarded IP if available, else direct clientAddress
+      const remoteIp = forwardedIp || clientAddress;
       if (remoteIp) {
           verifyPayload.append('remoteip', remoteIp);
-          console.log("Verifying Turnstile with remoteip:", remoteIp);
+          console.log("API Route: Verifying Turnstile with remoteip:", remoteIp);
       } else {
-          console.log("Verifying Turnstile without remoteip.");
+          console.warn("API Route: Verifying Turnstile without remoteip.");
       }
-
 
       const verifyResponse = await fetch(TURNSTILE_VERIFY_ENDPOINT, {
           method: 'POST',
-          body: verifyPayload, // Send as form data
-          headers: {
-              // 'Content-Type': 'application/x-www-form-urlencoded' // fetch sets this automatically for URLSearchParams
-          }
+          body: verifyPayload,
       });
-
       const verifyOutcome = await verifyResponse.json();
-
-      console.log("Turnstile verification outcome:", verifyOutcome);
+      console.log("API Route: Turnstile verification outcome:", verifyOutcome);
 
       if (!verifyOutcome.success) {
-          console.warn("API /api/orders/create: Turnstile verification failed.", verifyOutcome['error-codes']);
+          console.warn("API Route: Turnstile verification failed.", verifyOutcome['error-codes']);
           return new Response(
-              JSON.stringify({
-                  error: "CAPTCHA verification failed.",
-                  codes: verifyOutcome['error-codes'] || []
-              }),
-              { status: 403 } // 403 Forbidden is appropriate for failed CAPTCHA
+              JSON.stringify({ error: "CAPTCHA verification failed.", codes: verifyOutcome['error-codes'] || [] }),
+              { status: 403, headers: { 'Content-Type': 'application/json' } } // 403 Forbidden
           );
       }
-      // Turnstile validation passed! Proceed...
-      console.log("Turnstile verification successful for hostname:", verifyOutcome.hostname);
+      console.log("API Route: Turnstile verification successful for hostname:", verifyOutcome.hostname);
 
   } catch (error: any) {
-      console.error("API /api/orders/create: Error during Turnstile verification", error);
+      console.error("API Error: Exception during Turnstile verification:", error);
       return new Response(
-          JSON.stringify({ error: "Failed to verify CAPTCHA." }),
-          { status: 500 }
+          JSON.stringify({ error: "Server error during CAPTCHA verification." }),
+          { status: 500, headers: { 'Content-Type': 'application/json' } }
       );
   }
-  // --- End Turnstile Verification ---
 
-
-  // 3. Verify authentication and get user ID (Middleware should have run)
-  const accessToken = cookies.get("sb-access-token");
-
-  if (!accessToken) {
-    // This check might be redundant if the anonymous auth endpoint always runs first,
-    // but good for robustness if someone calls the API directly without going through the page flow.
-    return new Response(JSON.stringify({ error: "Unauthorized: Missing token after CAPTCHA" }), { status: 401 });
-  }
-
-  const { data: { user }, error: userError } = await supabase.auth.getUser(accessToken.value);
-
-  if (userError || !user) {
-    console.error("API /api/orders/create: Error getting user after CAPTCHA", userError);
-    return new Response(JSON.stringify({ error: "Unauthorized: Invalid session after CAPTCHA" }), { status: 401 });
-  }
-
-  const userId = user.id;
-
-  // 4. Insert into Database
+  // --- 3. Verify Authentication (Get User ID) ---
+  let userId: string;
   try {
-    const { data: newOrder, error: insertError } = await supabase
-      .from("orders")
-      .insert({
-        user_id: userId,
-        orderer_name: ordererName,
-        status: "pending",
-        // other fields...
-      })
-      .select()
-      .single();
-
-    if (insertError) {
-      console.error("API /api/orders/create: Supabase insert error", insertError);
-      if (insertError.code === '42501') {
-         return new Response(
-            JSON.stringify({ error: "Database permission denied. Check RLS policies." }),
-            { status: 403 }
-         );
+      console.log("API Route: Verifying user authentication...");
+      const accessToken = cookies.get("sb-access-token");
+      if (!accessToken) {
+          console.log("API Error: No access token found after CAPTCHA success.");
+          // Middleware should ideally catch this, but double-check
+          return new Response(JSON.stringify({ error: "Unauthorized: Authentication token missing." }), { status: 401, headers: { 'Content-Type': 'application/json' } });
       }
-      return new Response(
-        JSON.stringify({ error: "Database error: " + insertError.message }),
-        { status: 500 }
-      );
+
+      // Use Supabase client *only* for auth check here
+      const { data: { user }, error: userError } = await supabase.auth.getUser(accessToken.value);
+
+      if (userError || !user) {
+          console.error("API Error: Invalid session token after CAPTCHA.", userError?.message);
+          // Consider attempting refresh here or instruct client to re-auth? For now, fail.
+          // Clean up potentially invalid cookies?
+          // cookies.delete("sb-access-token", { path: "/" });
+          // cookies.delete("sb-refresh-token", { path: "/" });
+          return new Response(JSON.stringify({ error: "Unauthorized: Invalid or expired session." }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+      }
+      userId = user.id;
+      console.log("API Route: User authenticated successfully:", userId);
+
+  } catch (error: any) {
+       console.error("API Error: Exception during authentication check:", error);
+       return new Response( JSON.stringify({ error: "Server error during authentication check." }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
+
+
+  // --- 4. Call the Order Service ---
+  try {
+    console.log(`API Route: Calling createOrder service for user ${userId}`);
+    // Pass necessary data (userId, ordererName) to the service
+    const newOrder = await createOrder(userId, ordererName); // Service handles DB interaction
+
+    // --- 5. Return Success Response ---
+    console.log("API Route: Order created successfully:", newOrder.id);
+    return new Response(JSON.stringify(newOrder), {
+        status: 201, // Created
+        headers: { 'Content-Type': 'application/json' }
+     });
+
+  } catch (error: any) {
+    // --- 6. Handle Errors from Service ---
+    console.error("API Error (POST /api/orders/create - Service Call):", error.message);
+
+    // Map specific errors from the service to appropriate HTTP statuses
+    if (error.message.startsWith("Validation Error:")) {
+        return new Response( JSON.stringify({ error: `Bad Request: ${error.message}` }), {
+             status: 400,
+             headers: { 'Content-Type': 'application/json' }
+        });
+    }
+    if (error.message.startsWith("Permission Denied:")) {
+        return new Response( JSON.stringify({ error: error.message }), {
+             status: 403, // Forbidden
+             headers: { 'Content-Type': 'application/json' }
+        });
+    }
+    if (error.message.startsWith("Database Error:")) {
+         // Log the specific DB error but return a generic 500 to the client
+         return new Response( JSON.stringify({ error: "Failed to create order due to a server database error." }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' }
+         });
     }
 
-    // 5. Return Success Response
-    return new Response(JSON.stringify(newOrder), { status: 201 });
-
-  } catch (error: any) {
-    console.error("API /api/orders/create: Unexpected error during DB insert", error);
+    // Generic fallback for unexpected errors during service call
     return new Response(
-      JSON.stringify({ error: "An unexpected error occurred." }),
-      { status: 500 }
+      JSON.stringify({ error: "An unexpected server error occurred while creating the order." }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }
 };
 ```
 ---
 
+`src/services/guestbook.service.ts`:
+```
+// src/services/guestbook.service.ts
+import { supabase } from '../lib/supabase'; // Import the initialized client
+import type { GuestbookEntry } from '../types/types'; // Use our defined type
+
+/**
+ * Fetches all guestbook entries, ordered by creation date (ascending).
+ * Throws an error if the Supabase query fails.
+ */
+export async function getAllGuestbookEntries(): Promise<GuestbookEntry[]> {
+  console.log("Service: Fetching all guestbook entries...");
+  const { data, error } = await supabase
+    .from("guestbook")
+    .select("name, message") // Select only needed fields defined in the type
+    .order("created_at", { ascending: true }); // Or false based on desired display order
+
+  if (error) {
+    console.error("Service Error (getAllGuestbookEntries):", error);
+    // Throw a new error to be caught by the calling API route
+    throw new Error(`Failed to fetch guestbook entries: ${error.message}`);
+  }
+
+  console.log("Service: Fetched entries successfully.");
+  // You might add more robust validation here depending on needs
+  return data as GuestbookEntry[];
+}
+
+/**
+ * Creates a new guestbook entry.
+ * Throws an error if validation fails or the Supabase insert operation fails.
+ * @param name - The name of the poster.
+ * @param message - The message content.
+ * @returns The newly created guestbook entry (only name and message).
+ */
+export async function createGuestbookEntry(name: string, message: string): Promise<GuestbookEntry> {
+  // Basic validation within the service
+  if (!name || !message || name.trim().length === 0 || message.trim().length === 0) {
+      throw new Error("Validation Error: Name and message cannot be empty.");
+  }
+
+  const trimmedName = name.trim();
+  const trimmedMessage = message.trim();
+
+  console.log(`Service: Creating guestbook entry for '${trimmedName}'...`);
+  const { data, error } = await supabase
+    .from("guestbook")
+    .insert({ name: trimmedName, message: trimmedMessage })
+    .select("name, message") // Select the fields matching GuestbookEntry type
+    .single(); // Expecting a single row back after insert
+
+  if (error) {
+    console.error("Service Error (createGuestbookEntry):", error);
+    // Check for specific Supabase errors if needed (e.g., RLS violation '42501')
+    if (error.code === '42501') {
+        // Make error more specific for API layer to handle
+        throw new Error("Permission Denied: Cannot create guestbook entry. Check RLS policies.");
+    }
+    // Generic database error
+    throw new Error(`Database Error: Failed to create guestbook entry: ${error.message}`);
+  }
+
+  if (!data) {
+      // This case should ideally not be reached if insert succeeded without error,
+      // but acts as a safeguard.
+      throw new Error("Database Error: Failed to create guestbook entry: No data returned after insert.");
+  }
+
+  console.log("Service: Created entry successfully.");
+  return data as GuestbookEntry; // Return data matching the type
+}
+```
+---
+
+`src/services/order.service.ts`:
+```
+// src/services/order.service.ts
+import { supabase } from '../lib/supabase';
+import type { Order } from '../types/types'; // Import the Order type
+
+/**
+ * Creates a new order associated with a user ID.
+ * Throws an error if validation fails or the Supabase insert operation fails.
+ * @param userId - The authenticated user's ID (can be anonymous user ID).
+ * @param ordererName - The name provided for the order.
+ * @returns The newly created order data.
+ */
+export async function createOrder(userId: string, ordererName: string): Promise<Order> {
+    // Basic validation
+    if (!userId || !ordererName || ordererName.trim().length === 0) {
+        throw new Error("Validation Error: User ID and a non-empty Orderer Name are required to create an order.");
+    }
+
+    const trimmedOrdererName = ordererName.trim();
+
+    console.log(`Service: Creating order for user '${userId}' with name '${trimmedOrdererName}'...`);
+    const { data, error } = await supabase
+      .from("orders")
+      .insert({
+        user_id: userId,
+        orderer_name: trimmedOrdererName,
+        status: "pending", // Set default status
+        // Add other default fields if necessary
+      })
+      .select() // Select all fields of the new order defined in the Order type
+      .single(); // Expecting one row back
+
+    if (error) {
+      console.error("Service Error (createOrder):", error);
+       if (error.code === '42501') {
+         // Re-throw specific errors for better handling in the API layer
+         throw new Error("Permission Denied: Cannot create order. Check RLS policies.");
+       }
+      // Generic database error
+      throw new Error(`Database Error: Failed to create order: ${error.message}`);
+    }
+
+     if (!data) {
+      // Safeguard against unexpected null data after successful insert
+      throw new Error("Database Error: Failed to create order: No data returned after insert.");
+     }
+
+    console.log("Service: Created order successfully with ID:", data.id);
+    // Cast to ensure the returned object matches the Order interface
+    // Note: Supabase might return fields not explicitly in your type; casting narrows it.
+    return data as Order;
+}
+
+// Potential future functions:
+// export async function getOrderById(orderId: number): Promise<Order | null> { ... }
+// export async function updateOrderStatus(orderId: number, status: Order['status']): Promise<Order> { ... }
+// export async function getOrdersByUserId(userId: string): Promise<Order[]> { ... }
+```
+---
+
 `src/types/types.ts`:
 ```
 // src/types/types.ts
+
+// Existing GuestbookEntry type
 export interface GuestbookEntry {
-    name: string;
-    message: string;
+  name: string;
+  message: string;
+  // Consider adding id and created_at if you fetch/use them
+  // id?: number | string;
+  // created_at?: string;
+}
+
+// New Order type (adjust fields based on your actual 'orders' table schema)
+export interface Order {
+  id: number; // Or string if you use UUIDs
+  user_id: string; // Foreign key to auth.users
+  orderer_name: string;
+  status: "pending" | "processing" | "completed" | "cancelled"; // Example statuses
+  created_at: string; // ISO timestamp string
+  // Add any other relevant fields from your orders table
+  // e.g., order_details: any;
+  // e.g., total_price: number;
+}
+```
+---
+
+`src/utils/auth.ts`:
+```
+// src/utils/auth.ts
+import type { Session } from '@supabase/supabase-js';
+import type { AstroCookies } from 'astro';
+
+/**
+ * Sets the Supabase access and refresh token cookies with consistent security attributes.
+ * @param cookies - The Astro cookies object from APIContext or MiddlewareAPIContext.
+ * @param session - The Supabase session object containing tokens and expiration info.
+ */
+export function setAuthCookies(cookies: AstroCookies, session: Session | null | undefined): void {
+  // Ensure we have a session and tokens before proceeding
+  if (!session?.access_token || !session?.refresh_token) {
+      console.warn("setAuthCookies called without a valid session or tokens. Skipping cookie setting.");
+      // Optionally, clear existing cookies if session is null/undefined?
+      // deleteAuthCookies(cookies); // Be cautious if calling this here
+      return;
   }
+
+  const { access_token, refresh_token, expires_in } = session;
+
+  const baseCookieOptions = {
+    path: "/",
+    sameSite: "lax" as const,
+    secure: import.meta.env.PROD,
+    httpOnly: true,
+  };
+
+  // Calculate Access Token maxAge: Use expires_in (if valid > 0), default 1 hour.
+  // MUST be an integer, so use Math.floor().
+  const rawAccessTokenMaxAge = (expires_in != null && expires_in > 0) ? expires_in : 3600;
+  const accessTokenMaxAge = Math.floor(rawAccessTokenMaxAge); // <-- THE FIX
+
+  // Define Refresh Token maxAge: Typically longer, e.g., 7 days (already an integer)
+  const refreshTokenMaxAge = 60 * 60 * 24 * 7; // 7 days in seconds
+
+  // Add a check/log if the calculated maxAge seems wrong
+  if (accessTokenMaxAge <= 0) {
+      console.warn(`Calculated accessTokenMaxAge is invalid (${accessTokenMaxAge}). Using default 3600.`);
+      // accessTokenMaxAge = 3600; // Re-assign default if needed, though floor(>0) should be >= 0
+  }
+
+  console.log(`Setting auth cookies. Access token maxAge: ${accessTokenMaxAge}s`);
+
+  cookies.set("sb-access-token", access_token, {
+    ...baseCookieOptions,
+    maxAge: accessTokenMaxAge, // Pass the floored integer value
+  });
+
+  cookies.set("sb-refresh-token", refresh_token, {
+    ...baseCookieOptions,
+    maxAge: refreshTokenMaxAge,
+  });
+}
+
+/**
+ * Deletes the Supabase authentication cookies.
+ * @param cookies - The Astro cookies object.
+ */
+export function deleteAuthCookies(cookies: AstroCookies): void {
+    console.log("Deleting auth cookies.");
+    cookies.delete("sb-access-token", { path: "/" });
+    cookies.delete("sb-refresh-token", { path: "/" });
+}
 ```
 ---

@@ -1,14 +1,12 @@
 // src/middleware/index.ts
 import { defineMiddleware } from "astro:middleware";
 import { supabase } from "../lib/supabase";
+import { setAuthCookies, deleteAuthCookies } from '../utils/auth';
 
-// Define routes clearly
 const protectedPaths = ["/dashboard"];
-const redirectPaths = ["/signin", "/register"]; // Assuming you might add /register later
-// Add the new API route for creating orders
-const protectedAPIPaths = ["/api/guestbook", "/api/orders/create"]; // <-- ADDED HERE
+const redirectPaths = ["/signin"];
+const protectedAPIPaths = ["/api/guestbook", "/api/orders/create"];
 
-// Helper function to check paths, handling optional trailing slash
 function matchesPath(pathname: string, pathsToCheck: string[]): boolean {
   const normalizedPathname = pathname.endsWith('/') && pathname.length > 1
     ? pathname.slice(0, -1)
@@ -26,6 +24,7 @@ export const onRequest = defineMiddleware(
       const refreshToken = cookies.get("sb-refresh-token");
 
       if (!accessToken || !refreshToken) {
+        console.log("Middleware: No tokens for protected route, redirecting to signin.");
         return redirect("/signin");
       }
 
@@ -34,28 +33,16 @@ export const onRequest = defineMiddleware(
         access_token: accessToken.value,
       });
 
-      if (error) {
-        cookies.delete("sb-access-token", { path: "/" });
-        cookies.delete("sb-refresh-token", { path: "/" });
+      if (error || !data.session) {
+        console.log("Middleware: setSession failed for protected route, deleting cookies and redirecting.", error?.message);
+        deleteAuthCookies(cookies);
         return redirect("/signin");
       }
 
-      // Store email in locals for dashboard page
       locals.email = data.user?.email!;
 
-      // Refresh cookies with potentially new tokens and ensure flags are set
-      cookies.set("sb-access-token", data?.session?.access_token!, {
-        sameSite: "strict",
-        path: "/",
-        secure: import.meta.env.PROD, // Use secure cookies in production
-        httpOnly: true
-      });
-      cookies.set("sb-refresh-token", data?.session?.refresh_token!, {
-        sameSite: "strict",
-        path: "/",
-        secure: import.meta.env.PROD, // Use secure cookies in production
-        httpOnly: true,
-      });
+      console.log("Middleware: Session validated/refreshed for protected route, setting cookies.");
+      setAuthCookies(cookies, data.session);
     }
 
     const isRedirectRoute = matchesPath(url.pathname, redirectPaths);
@@ -65,10 +52,14 @@ export const onRequest = defineMiddleware(
       const refreshToken = cookies.get("sb-refresh-token");
 
       if (accessToken && refreshToken) {
-        // Optional: Quick validation before redirecting?
-        // For simplicity, just redirect if tokens exist.
-        // A robust check might involve supabase.auth.getUser(accessToken.value)
-        return redirect("/dashboard");
+        const { data: { user } } = await supabase.auth.getUser(accessToken.value);
+        if(user) {
+          console.log("Middleware: User already logged in, redirecting from signin/register to dashboard.");
+          return redirect("/dashboard");
+        } else {
+           console.log("Middleware: User has tokens but token is invalid, clearing cookies on redirect path.");
+           deleteAuthCookies(cookies);
+        }
       }
     }
 
@@ -76,55 +67,50 @@ export const onRequest = defineMiddleware(
 
     if (isProtectedAPIRoute) {
       const accessToken = cookies.get("sb-access-token");
-      const refreshToken = cookies.get("sb-refresh-token"); // Keep refresh token check for robustness
+      const refreshToken = cookies.get("sb-refresh-token");
 
-      if (!accessToken) { // Primarily check access token for API calls
+      if (!accessToken) {
          console.log("Middleware: No access token for protected API route");
          return new Response(JSON.stringify({ error: "Unauthorized: Missing token" }), { status: 401 });
       }
 
-      // Validate the access token
       const { data: { user }, error } = await supabase.auth.getUser(accessToken.value);
 
       if (error || !user) {
         console.log("Middleware: Invalid/Expired token for API route.", error?.message);
-        // Attempt refresh only if refresh token exists (though less common for API calls)
+
         if (refreshToken) {
+           console.log("Middleware: Attempting token refresh for API route.");
            const { data: refreshData , error: refreshError } = await supabase.auth.setSession({
                 refresh_token: refreshToken.value,
-                access_token: accessToken.value, // Include access token for potential validation
+                access_token: accessToken.value,
            });
 
             if (refreshError || !refreshData.session) {
-                console.log("Middleware: Session refresh failed for API route.");
-                cookies.delete("sb-access-token", { path: "/" });
-                cookies.delete("sb-refresh-token", { path: "/" });
+                console.log("Middleware: Session refresh failed for API route. Deleting cookies.");
+                deleteAuthCookies(cookies);
+
                 return new Response(JSON.stringify({ error: "Unauthorized: Session Refresh Failed" }), { status: 401 });
             }
 
-             // If refresh worked, set new cookies (important!) and proceed
-             console.log("Middleware: Session refreshed successfully for API route.");
-             cookies.set("sb-access-token", refreshData.session.access_token, {
-               sameSite: "strict", path: "/", secure: import.meta.env.PROD, httpOnly: true
-             });
-             cookies.set("sb-refresh-token", refreshData.session.refresh_token, {
-               sameSite: "strict", path: "/", secure: import.meta.env.PROD, httpOnly: true
-             });
-             // We *could* store the user ID in locals here if needed by multiple API endpoints
-             // locals.userId = refreshData.user.id;
-             return next(); // Proceed with the refreshed session
+             console.log("Middleware: Session refreshed successfully for API route. Setting cookies.");
+             setAuthCookies(cookies, refreshData.session);
+
+             return next();
         } else {
-            // No refresh token, definitely unauthorized
-            cookies.delete("sb-access-token", { path: "/" }); // Clean up invalid token
+
+             console.log("Middleware: Invalid token for API route and no refresh token found. Deleting cookie.");
+            deleteAuthCookies(cookies);
             return new Response(JSON.stringify({ error: "Unauthorized: Invalid Token" }), { status: 401 });
         }
       }
+      
       // If token is valid, proceed.
+      console.log("Middleware: Valid token found for protected API route.");
       // We *could* store the user ID in locals here if needed by multiple API endpoints
       // locals.userId = user.id;
     }
 
-    // If none of the above conditions were met, proceed to the route handler
     return next();
   },
 );
