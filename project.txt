@@ -669,44 +669,44 @@ const title = "Sign In";
 import type { APIRoute } from "astro";
 import { supabase } from "../../../lib/supabase";
 import { setAuthCookies } from '../../../utils/auth';
-import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from '../../../utils/constants'; // <-- IMPORT ADDED
+import { jsonResponse, jsonErrorResponse } from '../../../utils/apiResponse'; // <-- IMPORT ADDED
+// Using constants for cookie names
+import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from '../../../utils/constants';
 
 export const POST: APIRoute = async ({ cookies }) => {
-  // Use constants for cookie names
-  const existingAccessToken = cookies.get(ACCESS_TOKEN_COOKIE); // <-- UPDATED
-  const existingRefreshToken = cookies.get(REFRESH_TOKEN_COOKIE); // <-- UPDATED
+  // Check for *existing*, *valid* tokens before attempting a new anonymous sign-in.
+  const existingAccessToken = cookies.get(ACCESS_TOKEN_COOKIE);
+  const existingRefreshToken = cookies.get(REFRESH_TOKEN_COOKIE);
 
-  if (existingAccessToken && existingRefreshToken) {
-     // Verify the existing token before skipping
+  if (existingAccessToken?.value && existingRefreshToken?.value) {
+     console.log("Anonymous Route: Found existing tokens. Verifying session...");
      const { data: { user } } = await supabase.auth.getUser(existingAccessToken.value);
      if (user) {
-        console.log("Existing anonymous session is valid.");
-        return new Response(JSON.stringify({ message: "Already authenticated anonymously" }), { status: 200 });
+        console.log(`Anonymous Route: Existing session is valid for user ${user.id}. Skipping new anonymous sign-in.`);
+        // Use utility function for success response
+        return jsonResponse(200, { message: "Already authenticated anonymously", userId: user.id }); // <-- UPDATED
      } else {
-        console.log("Existing anonymous session token is invalid, proceeding with sign-in.");
+        console.log("Anonymous Route: Existing session token is invalid or expired. Proceeding with sign-in.");
      }
+  } else {
+      console.log("Anonymous Route: No existing auth tokens found or incomplete pair.");
   }
 
-  console.log("Attempting server-side anonymous sign-in...");
+  console.log("Anonymous Route: Attempting server-side anonymous sign-in...");
   const { data, error } = await supabase.auth.signInAnonymously();
 
-  if (error || !data?.session) {
-    console.error("Server-side anonymous sign-in error:", error);
-    return new Response(
-      JSON.stringify({ error: error?.message || "Anonymous sign-in failed" }),
-      { status: 500 }
-    );
+  if (error || !data?.session || !data?.user) {
+    console.error("Anonymous Route: Server-side anonymous sign-in error:", error);
+    // Use utility function for error response
+    return jsonErrorResponse(500, error?.message || "Anonymous sign-in failed"); // <-- UPDATED
   }
 
-  console.log("Server-side anonymous sign-in successful. Setting cookies.");
+  console.log(`Anonymous Route: Server-side anonymous sign-in successful for user ${data.user.id}. Setting cookies.`);
 
-  // Utility function handles constants internally
   setAuthCookies(cookies, data.session);
 
-  return new Response(
-    JSON.stringify({ message: "Anonymous sign-in successful", userId: data.user?.id }),
-    { status: 200 }
-  );
+  // Use utility function for success response
+  return jsonResponse(200, { message: "Anonymous sign-in successful", userId: data.user.id }); // <-- UPDATED
 };
 ```
 ---
@@ -715,30 +715,34 @@ export const POST: APIRoute = async ({ cookies }) => {
 ```
 import type { APIRoute } from "astro";
 import { supabase } from "../../../lib/supabase";
-import { setAuthCookies } from '../../../utils/auth'; // <-- IMPORT aDDED
+import { setAuthCookies } from '../../../utils/auth';
+import { jsonErrorResponse } from '../../../utils/apiResponse'; // <-- IMPORT ADDED
 
 export const GET: APIRoute = async ({ url, cookies, redirect }) => {
   const authCode = url.searchParams.get("code");
 
   if (!authCode) {
-    return new Response("No code provided", { status: 400 });
+    // Use utility function for error response
+    return jsonErrorResponse(400, "No code provided"); // <-- UPDATED
   }
 
   const { data, error } = await supabase.auth.exchangeCodeForSession(authCode);
 
   if (error) {
     console.error("Auth Callback Error:", error.message);
-    return new Response(error.message, { status: 500 });
+    // Use utility function for error response
+    return jsonErrorResponse(500, error.message); // <-- UPDATED
   }
 
   if (!data.session) {
       console.error("Auth Callback Error: No session data returned after code exchange.");
-      return new Response("Failed to establish session.", { status: 500});
+      // Use utility function for error response
+      return jsonErrorResponse(500, "Failed to establish session."); // <-- UPDATED
   }
-
 
   setAuthCookies(cookies, data.session);
 
+  // Redirect remains unchanged
   return redirect("/dashboard");
 };
 ```
@@ -749,16 +753,14 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
 import type { APIRoute } from "astro";
 import { supabase } from "../../../lib/supabase";
 import type { Provider } from "@supabase/supabase-js";
-import { AUTH_CALLBACK_PATH } from "../../../utils/constants"; // <-- IMPORT ADDED
-
-// const OAUTH_CALLBACK_PATH = "/api/auth/callback"; // Defined in constants now
+import { AUTH_CALLBACK_PATH } from "../../../utils/constants";
+import { jsonErrorResponse } from '../../../utils/apiResponse'; // <-- IMPORT ADDED
 
 export const POST: APIRoute = async ({ request, cookies, redirect, url }) => {
   const formData = await request.formData();
   const provider = formData.get("provider")?.toString();
 
-  // Use constant for callback path
-  const redirectUrl = `${url.origin}${AUTH_CALLBACK_PATH}`; // <-- UPDATED
+  const redirectUrl = `${url.origin}${AUTH_CALLBACK_PATH}`;
 
   if (provider === "google") {
     const { data, error } = await supabase.auth.signInWithOAuth({
@@ -770,12 +772,15 @@ export const POST: APIRoute = async ({ request, cookies, redirect, url }) => {
 
     if (error) {
       console.error("OAuth Error:", error.message);
-      return new Response(error.message, { status: 500 });
+      // Use utility function for error response
+      return jsonErrorResponse(500, error.message); // <-- UPDATED
     }
 
+    // Redirect remains unchanged
     return redirect(data.url);
   }
-  return new Response("Invalid sign-in method", { status: 400 });
+  // Use utility function for error response
+  return jsonErrorResponse(400, "Invalid sign-in method"); // <-- UPDATED
 };
 ```
 ---
@@ -798,99 +803,75 @@ export const GET: APIRoute = async ({ cookies, redirect }) => {
 ```
 // src/pages/api/guestbook/index.ts
 import type { APIRoute } from "astro";
-// Import the SERVICE functions, NOT the supabase client directly for DB operations
 import { getAllGuestbookEntries, createGuestbookEntry } from "../../../services/guestbook.service";
-import type { GuestbookEntry } from "../../../types/types"; // Import type for request body validation
+import type { GuestbookEntry } from "../../../types/types";
+import { jsonResponse, jsonErrorResponse } from '../../../utils/apiResponse'; // <-- IMPORT ADDED
 
 export const GET: APIRoute = async () => {
   console.log("API Route: GET /api/guestbook invoked.");
   try {
-    // Call the service function to get data
     const entries = await getAllGuestbookEntries();
-
-    // API route focuses on the HTTP response
-    return new Response(JSON.stringify(entries), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' }
-    });
+    // Use utility function for success response
+    return jsonResponse(200, entries); // <-- UPDATED
   } catch (error: any) {
     console.error("API Error (GET /api/guestbook):", error.message);
-    // Return a generic server error response (avoid leaking detailed errors)
-    return new Response(
-      JSON.stringify({ error: "Failed to retrieve guestbook entries." }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    );
+    // Use utility function for error response
+    return jsonErrorResponse(500, "Failed to retrieve guestbook entries."); // <-- UPDATED
   }
 };
 
-export const POST: APIRoute = async ({ request }) => {
+export const POST: APIRoute = async ({ request, locals }) => {
   console.log("API Route: POST /api/guestbook invoked.");
+
+  const userId = locals.userId;
+  if (!userId) {
+      console.error("API Error: No userId found in locals for protected route /api/guestbook");
+      // Use utility function for error response
+      return jsonErrorResponse(401, "Unauthorized: Missing user session."); // <-- UPDATED
+  }
+  console.log(`API Route: User authenticated via middleware. User ID: ${userId}. Ready to create guestbook entry.`);
+
   try {
-    // 1. Parse and validate request body at the API level
     let name: string;
     let message: string;
     try {
-        // Ensure body is valid JSON and has the expected fields
         const body: Partial<GuestbookEntry> = await request.json();
-        name = body.name?.toString() ?? ''; // Use nullish coalescing for safety
-        message = body.message?.toString() ?? '';
+        name = body.name?.toString().trim() ?? '';
+        message = body.message?.toString().trim() ?? '';
 
-        // Basic presence check (more specific validation is in the service)
         if (!name || !message) {
-            console.log("API Error: Missing name or message in request body.");
-            return new Response(JSON.stringify({ error: "Bad Request: Name and message are required."}), {
-                 status: 400,
-                 headers: { 'Content-Type': 'application/json' }
-            });
+            console.log("API Error: Missing or empty name or message in request body.");
+            // Use utility function for error response
+            return jsonErrorResponse(400, "Bad Request: Name and message are required and cannot be empty."); // <-- UPDATED
         }
     } catch (e) {
         console.log("API Error: Invalid JSON body received.");
-        return new Response(JSON.stringify({ error: "Bad Request: Invalid JSON body."}), {
-            status: 400,
-            headers: { 'Content-Type': 'application/json' }
-        });
+        // Use utility function for error response
+        return jsonErrorResponse(400, "Bad Request: Invalid JSON body."); // <-- UPDATED
     }
 
-    // 2. Call the service function to perform the action
-    // The service handles its own validation and database logic
     const newEntry = await createGuestbookEntry(name, message);
 
-    // 3. Return the successful HTTP response
     console.log("API Route: Guestbook entry created successfully.");
-    return new Response(JSON.stringify(newEntry), {
-        status: 201, // 201 Created is appropriate for successful POST
-        headers: { 'Content-Type': 'application/json' }
-    });
+    // Use utility function for success response
+    return jsonResponse(201, newEntry); // <-- UPDATED
 
   } catch (error: any) {
     console.error("API Error (POST /api/guestbook):", error.message);
 
-    // Handle specific errors thrown by the service
+    // Use utility function for error responses based on service error messages
     if (error.message.startsWith("Validation Error:")) {
-         return new Response( JSON.stringify({ error: `Bad Request: ${error.message}` }), {
-            status: 400,
-            headers: { 'Content-Type': 'application/json' }
-         });
+         return jsonErrorResponse(400, error.message); // <-- UPDATED
     }
     if (error.message.startsWith("Permission Denied:")) {
-         return new Response( JSON.stringify({ error: error.message }), {
-            status: 403, // Forbidden
-            headers: { 'Content-Type': 'application/json' }
-         });
+         return jsonErrorResponse(403, error.message); // <-- UPDATED
     }
      if (error.message.startsWith("Database Error:")) {
-         // Log the specific DB error but return a generic 500 to the client
-         return new Response( JSON.stringify({ error: "Failed to submit guestbook entry due to a server error." }), {
-            status: 500,
-            headers: { 'Content-Type': 'application/json' }
-         });
+         return jsonErrorResponse(500, "Failed to submit guestbook entry due to a server error."); // <-- UPDATED (Generic message for DB error)
      }
 
     // Fallback for unexpected errors
-    return new Response(
-      JSON.stringify({ error: "An unexpected error occurred while submitting the guestbook entry." }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    );
+    return jsonErrorResponse(500, "An unexpected error occurred while submitting the guestbook entry."); // <-- UPDATED
   }
 };
 ```
@@ -900,28 +881,29 @@ export const POST: APIRoute = async ({ request }) => {
 ```
 // src/pages/api/orders/create.ts
 import type { APIRoute } from "astro";
-import { supabase } from "../../../lib/supabase";
 import { createOrder } from "../../../services/order.service";
-import type { Order } from "../../../types/types";
-import { ACCESS_TOKEN_COOKIE, TURNSTILE_VERIFY_ENDPOINT } from '../../../utils/constants'; // <-- IMPORTS UPDATED
+import { TURNSTILE_VERIFY_ENDPOINT } from '../../../utils/constants';
+import { jsonResponse, jsonErrorResponse } from '../../../utils/apiResponse'; // <-- IMPORT ADDED
 
-// --- Turnstile Configuration ---
-// const TURNSTILE_VERIFY_ENDPOINT = '...'; // Defined in constants now
 const TURNSTILE_SECRET_KEY = import.meta.env.TURNSTILE_SECRET_KEY;
-// --- End Turnstile ---
 
-export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
+export const POST: APIRoute = async ({ request, locals, clientAddress }) => {
   console.log("API Route: POST /api/orders/create invoked.");
+
+  const userId = locals.userId;
+  if (!userId) {
+      console.error("API Error: No userId found in locals for protected route /api/orders/create");
+      // Use utility function for error response
+      return jsonErrorResponse(401, "Unauthorized: Missing user session."); // <-- UPDATED
+  }
+  console.log(`API Route: User authenticated via middleware. User ID: ${userId}`);
 
   if (!TURNSTILE_SECRET_KEY) {
       console.error("API Error: TURNSTILE_SECRET_KEY is not set.");
-      return new Response(
-          JSON.stringify({ error: "Server configuration error: CAPTCHA secret missing." }),
-          { status: 500, headers: { 'Content-Type': 'application/json' } }
-      );
+      // Use utility function for error response
+      return jsonErrorResponse(500, "Server configuration error: CAPTCHA secret missing."); // <-- UPDATED
   }
 
-  // --- 1. Parse Request Body ---
   let ordererName: string | undefined;
   let turnstileToken: string | undefined;
   try {
@@ -930,23 +912,25 @@ export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
         turnstileToken?: string;
     }
     const body: OrderRequestBody = await request.json();
-    ordererName = body.orderer_name?.toString();
+    ordererName = body.orderer_name?.toString().trim();
     turnstileToken = body.turnstileToken?.toString();
 
     if (!ordererName) {
-        console.log("API Error: Missing orderer_name in request body.");
-        return new Response(JSON.stringify({ error: "Bad Request: Orderer name is required." }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+        console.log("API Error: Missing or empty orderer_name in request body.");
+        // Use utility function for error response
+        return jsonErrorResponse(400, "Bad Request: Orderer name is required."); // <-- UPDATED
     }
     if (!turnstileToken) {
         console.log("API Error: Missing turnstileToken in request body.");
-        return new Response(JSON.stringify({ error: "Bad Request: CAPTCHA token is missing." }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+        // Use utility function for error response
+        return jsonErrorResponse(400, "Bad Request: CAPTCHA token is missing."); // <-- UPDATED
     }
   } catch (error) {
     console.log("API Error: Invalid JSON body received.");
-    return new Response(JSON.stringify({ error: "Bad Request: Invalid JSON body." }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    // Use utility function for error response
+    return jsonErrorResponse(400, "Bad Request: Invalid JSON body."); // <-- UPDATED
   }
 
-  // --- 2. Verify Turnstile Token ---
   try {
       console.log("API Route: Verifying Turnstile token...");
       const verifyPayload = new URLSearchParams();
@@ -962,8 +946,7 @@ export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
           console.warn("API Route: Verifying Turnstile without remoteip.");
       }
 
-      // Use constant for endpoint
-      const verifyResponse = await fetch(TURNSTILE_VERIFY_ENDPOINT, { // <-- UPDATED
+      const verifyResponse = await fetch(TURNSTILE_VERIFY_ENDPOINT, {
           method: 'POST',
           body: verifyPayload,
       });
@@ -972,87 +955,41 @@ export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
 
       if (!verifyOutcome.success) {
           console.warn("API Route: Turnstile verification failed.", verifyOutcome['error-codes']);
-          return new Response(
-              JSON.stringify({ error: "CAPTCHA verification failed.", codes: verifyOutcome['error-codes'] || [] }),
-              { status: 403, headers: { 'Content-Type': 'application/json' } }
-          );
+          // Use utility function for error response
+          return jsonErrorResponse(403, `CAPTCHA verification failed. Codes: ${ (verifyOutcome['error-codes'] || []).join(', ') }`); // <-- UPDATED
       }
       console.log("API Route: Turnstile verification successful for hostname:", verifyOutcome.hostname);
 
   } catch (error: any) {
       console.error("API Error: Exception during Turnstile verification:", error);
-      return new Response(
-          JSON.stringify({ error: "Server error during CAPTCHA verification." }),
-          { status: 500, headers: { 'Content-Type': 'application/json' } }
-      );
+      // Use utility function for error response
+      return jsonErrorResponse(500, "Server error during CAPTCHA verification."); // <-- UPDATED
   }
 
-  // --- 3. Verify Authentication (Get User ID) ---
-  let userId: string;
   try {
-      console.log("API Route: Verifying user authentication...");
-      // Use constant for cookie name
-      const accessToken = cookies.get(ACCESS_TOKEN_COOKIE); // <-- UPDATED
-      if (!accessToken) {
-          console.log("API Error: No access token found after CAPTCHA success.");
-          return new Response(JSON.stringify({ error: "Unauthorized: Authentication token missing." }), { status: 401, headers: { 'Content-Type': 'application/json' } });
-      }
-
-      const { data: { user }, error: userError } = await supabase.auth.getUser(accessToken.value);
-
-      if (userError || !user) {
-          console.error("API Error: Invalid session token after CAPTCHA.", userError?.message);
-          // Note: Middleware should handle refresh if possible. If it reaches here with invalid token and no refresh,
-          // deleting cookies might be appropriate, although the middleware already does this on failure.
-          // deleteAuthCookies(cookies); // Consider if needed here, likely redundant with middleware
-          return new Response(JSON.stringify({ error: "Unauthorized: Invalid or expired session." }), { status: 401, headers: { 'Content-Type': 'application/json' } });
-      }
-      userId = user.id;
-      console.log("API Route: User authenticated successfully:", userId);
-
-  } catch (error: any) {
-       console.error("API Error: Exception during authentication check:", error);
-       return new Response( JSON.stringify({ error: "Server error during authentication check." }), { status: 500, headers: { 'Content-Type': 'application/json' } });
-  }
-
-
-  // --- 4. Call the Order Service ---
-  try {
-    console.log(`API Route: Calling createOrder service for user ${userId}`);
+    console.log(`API Route: Calling createOrder service for user ${userId} with name ${ordererName}`);
     const newOrder = await createOrder(userId, ordererName);
 
-    // --- 5. Return Success Response ---
     console.log("API Route: Order created successfully:", newOrder.id);
-    return new Response(JSON.stringify(newOrder), {
-        status: 201,
-        headers: { 'Content-Type': 'application/json' }
-     });
+    // Use utility function for success response
+    return jsonResponse(201, newOrder); // <-- UPDATED
 
   } catch (error: any) {
-    // --- 6. Handle Errors from Service ---
     console.error("API Error (POST /api/orders/create - Service Call):", error.message);
 
+    // Use utility function for error responses based on service error messages
     if (error.message.startsWith("Validation Error:")) {
-        return new Response( JSON.stringify({ error: `Bad Request: ${error.message}` }), {
-             status: 400, headers: { 'Content-Type': 'application/json' }
-        });
+        return jsonErrorResponse(400, error.message); // <-- UPDATED
     }
     if (error.message.startsWith("Permission Denied:")) {
-        return new Response( JSON.stringify({ error: error.message }), {
-             status: 403, headers: { 'Content-Type': 'application/json' }
-        });
+        return jsonErrorResponse(403, error.message); // <-- UPDATED
     }
     if (error.message.startsWith("Database Error:")) {
-         return new Response( JSON.stringify({ error: "Failed to create order due to a server database error." }), {
-            status: 500, headers: { 'Content-Type': 'application/json' }
-         });
+         return jsonErrorResponse(500, "Failed to create order due to a server database error."); // <-- UPDATED (Generic message for DB error)
     }
 
-    // Generic fallback
-    return new Response(
-      JSON.stringify({ error: "An unexpected server error occurred while creating the order." }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    );
+    // Generic fallback for unexpected errors
+    return jsonErrorResponse(500, "An unexpected server error occurred while creating the order."); // <-- UPDATED
   }
 };
 ```
@@ -1217,6 +1154,53 @@ export interface Order {
   // e.g., order_details: any;
   // e.g., total_price: number;
 }
+```
+---
+
+`src/utils/apiResponse.ts`:
+```
+// src/utils/apiResponse.ts
+import type { APIContext } from 'astro';
+
+const commonHeaders = {
+    'Content-Type': 'application/json',
+};
+
+/**
+ * Creates a standardized JSON success response.
+ * @param status - HTTP status code (e.g., 200, 201).
+ * @param data - The payload to be stringified and sent.
+ * @returns A Response object.
+ */
+export function jsonResponse(status: number, data: any): Response {
+    return new Response(JSON.stringify(data), {
+        status: status,
+        headers: commonHeaders,
+    });
+}
+
+/**
+ * Creates a standardized JSON error response.
+ * @param status - HTTP status code (e.g., 400, 401, 403, 404, 500).
+ * @param message - The error message.
+ * @returns A Response object with { error: message } payload.
+ */
+export function jsonErrorResponse(status: number, message: string): Response {
+    return new Response(JSON.stringify({ error: message }), {
+        status: status,
+        headers: commonHeaders,
+    });
+}
+
+// Example of a more detailed error structure if needed in the future:
+/*
+export function jsonDetailedErrorResponse(status: number, message: string, details?: any): Response {
+    return new Response(JSON.stringify({ error: { message, details } }), {
+        status: status,
+        headers: commonHeaders,
+    });
+}
+*/
 ```
 ---
 

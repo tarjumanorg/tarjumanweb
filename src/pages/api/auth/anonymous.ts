@@ -2,42 +2,42 @@
 import type { APIRoute } from "astro";
 import { supabase } from "../../../lib/supabase";
 import { setAuthCookies } from '../../../utils/auth';
-import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from '../../../utils/constants'; // <-- IMPORT ADDED
+import { jsonResponse, jsonErrorResponse } from '../../../utils/apiResponse'; // <-- IMPORT ADDED
+// Using constants for cookie names
+import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from '../../../utils/constants';
 
 export const POST: APIRoute = async ({ cookies }) => {
-  // Use constants for cookie names
-  const existingAccessToken = cookies.get(ACCESS_TOKEN_COOKIE); // <-- UPDATED
-  const existingRefreshToken = cookies.get(REFRESH_TOKEN_COOKIE); // <-- UPDATED
+  // Check for *existing*, *valid* tokens before attempting a new anonymous sign-in.
+  const existingAccessToken = cookies.get(ACCESS_TOKEN_COOKIE);
+  const existingRefreshToken = cookies.get(REFRESH_TOKEN_COOKIE);
 
-  if (existingAccessToken && existingRefreshToken) {
-     // Verify the existing token before skipping
+  if (existingAccessToken?.value && existingRefreshToken?.value) {
+     console.log("Anonymous Route: Found existing tokens. Verifying session...");
      const { data: { user } } = await supabase.auth.getUser(existingAccessToken.value);
      if (user) {
-        console.log("Existing anonymous session is valid.");
-        return new Response(JSON.stringify({ message: "Already authenticated anonymously" }), { status: 200 });
+        console.log(`Anonymous Route: Existing session is valid for user ${user.id}. Skipping new anonymous sign-in.`);
+        // Use utility function for success response
+        return jsonResponse(200, { message: "Already authenticated anonymously", userId: user.id }); // <-- UPDATED
      } else {
-        console.log("Existing anonymous session token is invalid, proceeding with sign-in.");
+        console.log("Anonymous Route: Existing session token is invalid or expired. Proceeding with sign-in.");
      }
+  } else {
+      console.log("Anonymous Route: No existing auth tokens found or incomplete pair.");
   }
 
-  console.log("Attempting server-side anonymous sign-in...");
+  console.log("Anonymous Route: Attempting server-side anonymous sign-in...");
   const { data, error } = await supabase.auth.signInAnonymously();
 
-  if (error || !data?.session) {
-    console.error("Server-side anonymous sign-in error:", error);
-    return new Response(
-      JSON.stringify({ error: error?.message || "Anonymous sign-in failed" }),
-      { status: 500 }
-    );
+  if (error || !data?.session || !data?.user) {
+    console.error("Anonymous Route: Server-side anonymous sign-in error:", error);
+    // Use utility function for error response
+    return jsonErrorResponse(500, error?.message || "Anonymous sign-in failed"); // <-- UPDATED
   }
 
-  console.log("Server-side anonymous sign-in successful. Setting cookies.");
+  console.log(`Anonymous Route: Server-side anonymous sign-in successful for user ${data.user.id}. Setting cookies.`);
 
-  // Utility function handles constants internally
   setAuthCookies(cookies, data.session);
 
-  return new Response(
-    JSON.stringify({ message: "Anonymous sign-in successful", userId: data.user?.id }),
-    { status: 200 }
-  );
+  // Use utility function for success response
+  return jsonResponse(200, { message: "Anonymous sign-in successful", userId: data.user.id }); // <-- UPDATED
 };

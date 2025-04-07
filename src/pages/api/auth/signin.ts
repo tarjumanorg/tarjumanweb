@@ -1,16 +1,14 @@
 import type { APIRoute } from "astro";
 import { supabase } from "../../../lib/supabase";
 import type { Provider } from "@supabase/supabase-js";
-import { AUTH_CALLBACK_PATH } from "../../../utils/constants"; // <-- IMPORT ADDED
-
-// const OAUTH_CALLBACK_PATH = "/api/auth/callback"; // Defined in constants now
+import { AUTH_CALLBACK_PATH } from "../../../utils/constants";
+import { jsonErrorResponse } from '../../../utils/apiResponse'; // <-- IMPORT ADDED
 
 export const POST: APIRoute = async ({ request, cookies, redirect, url }) => {
   const formData = await request.formData();
   const provider = formData.get("provider")?.toString();
 
-  // Use constant for callback path
-  const redirectUrl = `${url.origin}${AUTH_CALLBACK_PATH}`; // <-- UPDATED
+  const redirectUrl = `${url.origin}${AUTH_CALLBACK_PATH}`;
 
   if (provider === "google") {
     const { data, error } = await supabase.auth.signInWithOAuth({
@@ -22,10 +20,13 @@ export const POST: APIRoute = async ({ request, cookies, redirect, url }) => {
 
     if (error) {
       console.error("OAuth Error:", error.message);
-      return new Response(error.message, { status: 500 });
+      // Use utility function for error response
+      return jsonErrorResponse(500, error.message); // <-- UPDATED
     }
 
+    // Redirect remains unchanged
     return redirect(data.url);
   }
-  return new Response("Invalid sign-in method", { status: 400 });
+  // Use utility function for error response
+  return jsonErrorResponse(400, "Invalid sign-in method"); // <-- UPDATED
 };
