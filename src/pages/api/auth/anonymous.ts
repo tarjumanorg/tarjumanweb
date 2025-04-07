@@ -1,19 +1,16 @@
 // src/pages/api/auth/anonymous.ts
 import type { APIRoute } from "astro";
-import { supabase } from "../../../lib/supabase"; // Adjust path if needed
-import { setAuthCookies } from '../../../utils/auth'; // <-- IMPORT ADDED
+import { supabase } from "../../../lib/supabase";
+import { setAuthCookies } from '../../../utils/auth';
+import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from '../../../utils/constants'; // <-- IMPORT ADDED
 
-export const POST: APIRoute = async ({ cookies }) => { // Removed redirect as it's not used
-  // Check if user already has a valid session cookie (optional but good practice)
-  const existingAccessToken = cookies.get("sb-access-token");
-  const existingRefreshToken = cookies.get("sb-refresh-token");
+export const POST: APIRoute = async ({ cookies }) => {
+  // Use constants for cookie names
+  const existingAccessToken = cookies.get(ACCESS_TOKEN_COOKIE); // <-- UPDATED
+  const existingRefreshToken = cookies.get(REFRESH_TOKEN_COOKIE); // <-- UPDATED
 
   if (existingAccessToken && existingRefreshToken) {
-     // Optional: Validate existing session quickly?
-     // For simplicity, if cookies exist, assume they might be valid or refreshable by middleware later.
-     // You could add a supabase.auth.getUser(existingAccessToken.value) check here if strictness is needed.
-     console.log("Anonymous sign-in skipped, existing session cookie found.");
-     // Let's verify the existing token before skipping
+     // Verify the existing token before skipping
      const { data: { user } } = await supabase.auth.getUser(existingAccessToken.value);
      if (user) {
         console.log("Existing anonymous session is valid.");
@@ -24,7 +21,6 @@ export const POST: APIRoute = async ({ cookies }) => { // Removed redirect as it
   }
 
   console.log("Attempting server-side anonymous sign-in...");
-  // Perform anonymous sign-in on the server
   const { data, error } = await supabase.auth.signInAnonymously();
 
   if (error || !data?.session) {
@@ -37,11 +33,11 @@ export const POST: APIRoute = async ({ cookies }) => { // Removed redirect as it
 
   console.log("Server-side anonymous sign-in successful. Setting cookies.");
 
-  // Set cookies using the utility function
-  setAuthCookies(cookies, data.session); // <-- REPLACED manual cookies.set calls
+  // Utility function handles constants internally
+  setAuthCookies(cookies, data.session);
 
   return new Response(
-    JSON.stringify({ message: "Anonymous sign-in successful", userId: data.user?.id }), // Optionally return user ID
+    JSON.stringify({ message: "Anonymous sign-in successful", userId: data.user?.id }),
     { status: 200 }
   );
 };

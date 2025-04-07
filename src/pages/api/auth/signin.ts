@@ -1,14 +1,16 @@
 import type { APIRoute } from "astro";
 import { supabase } from "../../../lib/supabase";
 import type { Provider } from "@supabase/supabase-js";
+import { AUTH_CALLBACK_PATH } from "../../../utils/constants"; // <-- IMPORT ADDED
 
-const OAUTH_CALLBACK_PATH = "/api/auth/callback";
+// const OAUTH_CALLBACK_PATH = "/api/auth/callback"; // Defined in constants now
 
 export const POST: APIRoute = async ({ request, cookies, redirect, url }) => {
   const formData = await request.formData();
   const provider = formData.get("provider")?.toString();
 
-  const redirectUrl = `${url.origin}${OAUTH_CALLBACK_PATH}`;
+  // Use constant for callback path
+  const redirectUrl = `${url.origin}${AUTH_CALLBACK_PATH}`; // <-- UPDATED
 
   if (provider === "google") {
     const { data, error } = await supabase.auth.signInWithOAuth({

@@ -27,9 +27,12 @@ export default defineConfig({
 
 `src/env.d.ts`:
 ```
+// src/env.d.ts
 declare namespace App {
   interface Locals {
-    email: string;
+    // Changed from email: string to userId?: string
+    // Optional because not all requests will have an authenticated user
+    userId?: string;
   }
 }
 ```
@@ -258,9 +261,12 @@ export const supabase = createClient(
 import { defineMiddleware } from "astro:middleware";
 import { supabase } from "../lib/supabase";
 import { setAuthCookies, deleteAuthCookies } from '../utils/auth';
+import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from '../utils/constants';
 
+// Consider moving these to constants.ts as well if used elsewhere
+// Or import if they are defined there
 const protectedPaths = ["/dashboard"];
-const redirectPaths = ["/signin"];
+const redirectPaths = ["/signin"]; // e.g., signin, register
 const protectedAPIPaths = ["/api/guestbook", "/api/orders/create"];
 
 function matchesPath(pathname: string, pathsToCheck: string[]): boolean {
@@ -272,101 +278,78 @@ function matchesPath(pathname: string, pathsToCheck: string[]): boolean {
 
 export const onRequest = defineMiddleware(
   async ({ locals, url, cookies, redirect }, next) => {
+    // --- 1. Centralized Auth Check ---
+    const accessToken = cookies.get(ACCESS_TOKEN_COOKIE);
+    const refreshToken = cookies.get(REFRESH_TOKEN_COOKIE);
+    locals.userId = undefined; // Ensure locals.userId is reset per request
 
-    const isProtectedRoute = matchesPath(url.pathname, protectedPaths);
+    if (accessToken) {
+      console.log("Middleware: Access token found. Verifying...");
+      const { data: { user }, error: getUserError } = await supabase.auth.getUser(accessToken.value);
 
-    if (isProtectedRoute) {
-      const accessToken = cookies.get("sb-access-token");
-      const refreshToken = cookies.get("sb-refresh-token");
+      if (user) {
+        console.log(`Middleware: User ${user.id} verified successfully via access token.`);
+        locals.userId = user.id;
+        // Optional: Refresh session proactively if needed, but getUser is usually sufficient
+      } else {
+        console.log("Middleware: Access token invalid or expired.", getUserError?.message);
+        if (refreshToken) {
+          console.log("Middleware: Refresh token found. Attempting session refresh...");
+          // Use setSession as it handles refresh internally when access token is provided (even if expired)
+          const { data: refreshData, error: refreshError } = await supabase.auth.setSession({
+            access_token: accessToken.value,
+            refresh_token: refreshToken.value,
+          });
 
-      if (!accessToken || !refreshToken) {
-        console.log("Middleware: No tokens for protected route, redirecting to signin.");
-        return redirect("/signin");
+          if (refreshData?.session && refreshData?.user) {
+            console.log(`Middleware: Session refreshed successfully for user ${refreshData.user.id}. Setting cookies.`);
+            locals.userId = refreshData.user.id;
+            setAuthCookies(cookies, refreshData.session); // Update cookies with new tokens/expiry
+          } else {
+            console.log("Middleware: Session refresh failed. Deleting auth cookies.", refreshError?.message);
+            deleteAuthCookies(cookies);
+            // locals.userId remains undefined
+          }
+        } else {
+          console.log("Middleware: Invalid access token and no refresh token found. Deleting auth cookies.");
+          deleteAuthCookies(cookies);
+          // locals.userId remains undefined
+        }
       }
-
-      const { data, error } = await supabase.auth.setSession({
-        refresh_token: refreshToken.value,
-        access_token: accessToken.value,
-      });
-
-      if (error || !data.session) {
-        console.log("Middleware: setSession failed for protected route, deleting cookies and redirecting.", error?.message);
-        deleteAuthCookies(cookies);
-        return redirect("/signin");
-      }
-
-      locals.email = data.user?.email!;
-
-      console.log("Middleware: Session validated/refreshed for protected route, setting cookies.");
-      setAuthCookies(cookies, data.session);
+    } else {
+       console.log("Middleware: No access token found.");
+       // If only refresh token exists, Supabase client handles refresh on next DB call attempt,
+       // but we can't pre-validate user easily here without access token for getUser.
+       // If access token is missing, treat as unauthenticated for initial checks.
+       // If refresh token exists alone, delete it as it's likely stale without access token.
+       if (refreshToken) {
+           console.log("Middleware: Access token missing but refresh token exists. Deleting stale refresh token.");
+           deleteAuthCookies(cookies); // deleteAuthCookies targets both
+       }
     }
 
+    // --- 2. Path-Based Logic (using locals.userId) ---
+    const isProtectedRoute = matchesPath(url.pathname, protectedPaths);
+    const isProtectedAPIRoute = matchesPath(url.pathname, protectedAPIPaths);
     const isRedirectRoute = matchesPath(url.pathname, redirectPaths);
 
-    if (isRedirectRoute) {
-      const accessToken = cookies.get("sb-access-token");
-      const refreshToken = cookies.get("sb-refresh-token");
-
-      if (accessToken && refreshToken) {
-        const { data: { user } } = await supabase.auth.getUser(accessToken.value);
-        if(user) {
-          console.log("Middleware: User already logged in, redirecting from signin/register to dashboard.");
-          return redirect("/dashboard");
-        } else {
-           console.log("Middleware: User has tokens but token is invalid, clearing cookies on redirect path.");
-           deleteAuthCookies(cookies);
-        }
-      }
+    if (isProtectedRoute && !locals.userId) {
+      console.log(`Middleware: Blocked access to protected route ${url.pathname}. Redirecting to signin.`);
+      return redirect("/signin");
     }
 
-    const isProtectedAPIRoute = matchesPath(url.pathname, protectedAPIPaths);
-
-    if (isProtectedAPIRoute) {
-      const accessToken = cookies.get("sb-access-token");
-      const refreshToken = cookies.get("sb-refresh-token");
-
-      if (!accessToken) {
-         console.log("Middleware: No access token for protected API route");
-         return new Response(JSON.stringify({ error: "Unauthorized: Missing token" }), { status: 401 });
-      }
-
-      const { data: { user }, error } = await supabase.auth.getUser(accessToken.value);
-
-      if (error || !user) {
-        console.log("Middleware: Invalid/Expired token for API route.", error?.message);
-
-        if (refreshToken) {
-           console.log("Middleware: Attempting token refresh for API route.");
-           const { data: refreshData , error: refreshError } = await supabase.auth.setSession({
-                refresh_token: refreshToken.value,
-                access_token: accessToken.value,
-           });
-
-            if (refreshError || !refreshData.session) {
-                console.log("Middleware: Session refresh failed for API route. Deleting cookies.");
-                deleteAuthCookies(cookies);
-
-                return new Response(JSON.stringify({ error: "Unauthorized: Session Refresh Failed" }), { status: 401 });
-            }
-
-             console.log("Middleware: Session refreshed successfully for API route. Setting cookies.");
-             setAuthCookies(cookies, refreshData.session);
-
-             return next();
-        } else {
-
-             console.log("Middleware: Invalid token for API route and no refresh token found. Deleting cookie.");
-            deleteAuthCookies(cookies);
-            return new Response(JSON.stringify({ error: "Unauthorized: Invalid Token" }), { status: 401 });
-        }
-      }
-      
-      // If token is valid, proceed.
-      console.log("Middleware: Valid token found for protected API route.");
-      // We *could* store the user ID in locals here if needed by multiple API endpoints
-      // locals.userId = user.id;
+    if (isProtectedAPIRoute && !locals.userId) {
+       console.log(`Middleware: Blocked access to protected API route ${url.pathname}. Returning 401.`);
+       return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
     }
 
+    if (isRedirectRoute && locals.userId) {
+        console.log(`Middleware: User already logged in (User ID: ${locals.userId}). Redirecting from ${url.pathname} to dashboard.`);
+        return redirect("/dashboard");
+    }
+
+    // --- 3. Proceed if no action taken ---
+    console.log(`Middleware: Allowing request to ${url.pathname}. Authenticated User ID: ${locals.userId ?? 'None'}`);
     return next();
   },
 );
@@ -382,12 +365,23 @@ import { supabase } from "../lib/supabase";
 import Reviews from "../components/Reviews.astro";
 import type { GuestbookEntry } from "../types/types";
 
-const { email } = Astro.locals;
+// Astro.locals no longer contains 'email'. It now potentially contains 'userId'.
+// We won't display the user identifier here directly anymore for this example,
+// but you *could* use locals.userId to fetch more user details if needed.
+const { userId } = Astro.locals;
+
+// If the middleware didn't redirect, userId *should* be set, but we add a check.
+if (!userId) {
+  // This should technically not be reachable if middleware is correct,
+  // but acts as a safeguard or indicates a logic error in middleware.
+  return Astro.redirect("/signin");
+}
 
 let reviews: GuestbookEntry[] = [];
 let fetchError: string | null = null;
 
 try {
+  // Fetching reviews doesn't depend on userId unless you add RLS policies based on it
   const { data, error } = await supabase
     .from("guestbook")
     .select("name, message")
@@ -406,8 +400,11 @@ try {
 
 <Layout title="Dashboard">
   <section>
+    <!-- Removed the display of email -->
     <p>
-      Logged in as: <strong>{email}</strong>
+      <!-- You could display the user ID: <strong>User ID: {userId}</strong> -->
+      <!-- Or fetch user details based on userId if needed -->
+      Welcome! You are logged in.
     </p>
     <p>
       This is a protected page. You can only see this if you are logged in.
@@ -670,20 +667,17 @@ const title = "Sign In";
 ```
 // src/pages/api/auth/anonymous.ts
 import type { APIRoute } from "astro";
-import { supabase } from "../../../lib/supabase"; // Adjust path if needed
-import { setAuthCookies } from '../../../utils/auth'; // <-- IMPORT ADDED
+import { supabase } from "../../../lib/supabase";
+import { setAuthCookies } from '../../../utils/auth';
+import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from '../../../utils/constants'; // <-- IMPORT ADDED
 
-export const POST: APIRoute = async ({ cookies }) => { // Removed redirect as it's not used
-  // Check if user already has a valid session cookie (optional but good practice)
-  const existingAccessToken = cookies.get("sb-access-token");
-  const existingRefreshToken = cookies.get("sb-refresh-token");
+export const POST: APIRoute = async ({ cookies }) => {
+  // Use constants for cookie names
+  const existingAccessToken = cookies.get(ACCESS_TOKEN_COOKIE); // <-- UPDATED
+  const existingRefreshToken = cookies.get(REFRESH_TOKEN_COOKIE); // <-- UPDATED
 
   if (existingAccessToken && existingRefreshToken) {
-     // Optional: Validate existing session quickly?
-     // For simplicity, if cookies exist, assume they might be valid or refreshable by middleware later.
-     // You could add a supabase.auth.getUser(existingAccessToken.value) check here if strictness is needed.
-     console.log("Anonymous sign-in skipped, existing session cookie found.");
-     // Let's verify the existing token before skipping
+     // Verify the existing token before skipping
      const { data: { user } } = await supabase.auth.getUser(existingAccessToken.value);
      if (user) {
         console.log("Existing anonymous session is valid.");
@@ -694,7 +688,6 @@ export const POST: APIRoute = async ({ cookies }) => { // Removed redirect as it
   }
 
   console.log("Attempting server-side anonymous sign-in...");
-  // Perform anonymous sign-in on the server
   const { data, error } = await supabase.auth.signInAnonymously();
 
   if (error || !data?.session) {
@@ -707,11 +700,11 @@ export const POST: APIRoute = async ({ cookies }) => { // Removed redirect as it
 
   console.log("Server-side anonymous sign-in successful. Setting cookies.");
 
-  // Set cookies using the utility function
-  setAuthCookies(cookies, data.session); // <-- REPLACED manual cookies.set calls
+  // Utility function handles constants internally
+  setAuthCookies(cookies, data.session);
 
   return new Response(
-    JSON.stringify({ message: "Anonymous sign-in successful", userId: data.user?.id }), // Optionally return user ID
+    JSON.stringify({ message: "Anonymous sign-in successful", userId: data.user?.id }),
     { status: 200 }
   );
 };
@@ -722,7 +715,7 @@ export const POST: APIRoute = async ({ cookies }) => { // Removed redirect as it
 ```
 import type { APIRoute } from "astro";
 import { supabase } from "../../../lib/supabase";
-import { setAuthCookies } from '../../../utils/auth';
+import { setAuthCookies } from '../../../utils/auth'; // <-- IMPORT aDDED
 
 export const GET: APIRoute = async ({ url, cookies, redirect }) => {
   const authCode = url.searchParams.get("code");
@@ -743,6 +736,7 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
       return new Response("Failed to establish session.", { status: 500});
   }
 
+
   setAuthCookies(cookies, data.session);
 
   return redirect("/dashboard");
@@ -755,14 +749,16 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
 import type { APIRoute } from "astro";
 import { supabase } from "../../../lib/supabase";
 import type { Provider } from "@supabase/supabase-js";
+import { AUTH_CALLBACK_PATH } from "../../../utils/constants"; // <-- IMPORT ADDED
 
-const OAUTH_CALLBACK_PATH = "/api/auth/callback";
+// const OAUTH_CALLBACK_PATH = "/api/auth/callback"; // Defined in constants now
 
 export const POST: APIRoute = async ({ request, cookies, redirect, url }) => {
   const formData = await request.formData();
   const provider = formData.get("provider")?.toString();
 
-  const redirectUrl = `${url.origin}${OAUTH_CALLBACK_PATH}`;
+  // Use constant for callback path
+  const redirectUrl = `${url.origin}${AUTH_CALLBACK_PATH}`; // <-- UPDATED
 
   if (provider === "google") {
     const { data, error } = await supabase.auth.signInWithOAuth({
@@ -787,13 +783,14 @@ export const POST: APIRoute = async ({ request, cookies, redirect, url }) => {
 `src/pages/api/auth/signout.ts`:
 ```
 import type { APIRoute } from "astro";
+import { deleteAuthCookies } from '../../../utils/auth'; // <-- IMPORT ADDED
 
 export const GET: APIRoute = async ({ cookies, redirect }) => {
-  cookies.delete("sb-access-token", { path: "/" });
-  cookies.delete("sb-refresh-token", { path: "/" });
+  // Use the utility function to delete cookies
+  deleteAuthCookies(cookies); // <-- REPLACED manual deletes
+
   return redirect("/signin");
 };
-
 ```
 ---
 
@@ -903,20 +900,19 @@ export const POST: APIRoute = async ({ request }) => {
 ```
 // src/pages/api/orders/create.ts
 import type { APIRoute } from "astro";
-import { supabase } from "../../../lib/supabase"; // Keep for auth check ONLY
-// Import the SERVICE function for database interaction
+import { supabase } from "../../../lib/supabase";
 import { createOrder } from "../../../services/order.service";
-import type { Order } from "../../../types/types"; // Import type if needed for request validation
+import type { Order } from "../../../types/types";
+import { ACCESS_TOKEN_COOKIE, TURNSTILE_VERIFY_ENDPOINT } from '../../../utils/constants'; // <-- IMPORTS UPDATED
 
 // --- Turnstile Configuration ---
-const TURNSTILE_VERIFY_ENDPOINT = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
+// const TURNSTILE_VERIFY_ENDPOINT = '...'; // Defined in constants now
 const TURNSTILE_SECRET_KEY = import.meta.env.TURNSTILE_SECRET_KEY;
 // --- End Turnstile ---
 
 export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
   console.log("API Route: POST /api/orders/create invoked.");
 
-  // --- Environment Variable Check ---
   if (!TURNSTILE_SECRET_KEY) {
       console.error("API Error: TURNSTILE_SECRET_KEY is not set.");
       return new Response(
@@ -929,7 +925,6 @@ export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
   let ordererName: string | undefined;
   let turnstileToken: string | undefined;
   try {
-    // Define expected body structure (optional but good practice)
     interface OrderRequestBody {
         orderer_name?: string;
         turnstileToken?: string;
@@ -967,7 +962,8 @@ export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
           console.warn("API Route: Verifying Turnstile without remoteip.");
       }
 
-      const verifyResponse = await fetch(TURNSTILE_VERIFY_ENDPOINT, {
+      // Use constant for endpoint
+      const verifyResponse = await fetch(TURNSTILE_VERIFY_ENDPOINT, { // <-- UPDATED
           method: 'POST',
           body: verifyPayload,
       });
@@ -978,7 +974,7 @@ export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
           console.warn("API Route: Turnstile verification failed.", verifyOutcome['error-codes']);
           return new Response(
               JSON.stringify({ error: "CAPTCHA verification failed.", codes: verifyOutcome['error-codes'] || [] }),
-              { status: 403, headers: { 'Content-Type': 'application/json' } } // 403 Forbidden
+              { status: 403, headers: { 'Content-Type': 'application/json' } }
           );
       }
       console.log("API Route: Turnstile verification successful for hostname:", verifyOutcome.hostname);
@@ -995,22 +991,20 @@ export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
   let userId: string;
   try {
       console.log("API Route: Verifying user authentication...");
-      const accessToken = cookies.get("sb-access-token");
+      // Use constant for cookie name
+      const accessToken = cookies.get(ACCESS_TOKEN_COOKIE); // <-- UPDATED
       if (!accessToken) {
           console.log("API Error: No access token found after CAPTCHA success.");
-          // Middleware should ideally catch this, but double-check
           return new Response(JSON.stringify({ error: "Unauthorized: Authentication token missing." }), { status: 401, headers: { 'Content-Type': 'application/json' } });
       }
 
-      // Use Supabase client *only* for auth check here
       const { data: { user }, error: userError } = await supabase.auth.getUser(accessToken.value);
 
       if (userError || !user) {
           console.error("API Error: Invalid session token after CAPTCHA.", userError?.message);
-          // Consider attempting refresh here or instruct client to re-auth? For now, fail.
-          // Clean up potentially invalid cookies?
-          // cookies.delete("sb-access-token", { path: "/" });
-          // cookies.delete("sb-refresh-token", { path: "/" });
+          // Note: Middleware should handle refresh if possible. If it reaches here with invalid token and no refresh,
+          // deleting cookies might be appropriate, although the middleware already does this on failure.
+          // deleteAuthCookies(cookies); // Consider if needed here, likely redundant with middleware
           return new Response(JSON.stringify({ error: "Unauthorized: Invalid or expired session." }), { status: 401, headers: { 'Content-Type': 'application/json' } });
       }
       userId = user.id;
@@ -1025,13 +1019,12 @@ export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
   // --- 4. Call the Order Service ---
   try {
     console.log(`API Route: Calling createOrder service for user ${userId}`);
-    // Pass necessary data (userId, ordererName) to the service
-    const newOrder = await createOrder(userId, ordererName); // Service handles DB interaction
+    const newOrder = await createOrder(userId, ordererName);
 
     // --- 5. Return Success Response ---
     console.log("API Route: Order created successfully:", newOrder.id);
     return new Response(JSON.stringify(newOrder), {
-        status: 201, // Created
+        status: 201,
         headers: { 'Content-Type': 'application/json' }
      });
 
@@ -1039,28 +1032,23 @@ export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
     // --- 6. Handle Errors from Service ---
     console.error("API Error (POST /api/orders/create - Service Call):", error.message);
 
-    // Map specific errors from the service to appropriate HTTP statuses
     if (error.message.startsWith("Validation Error:")) {
         return new Response( JSON.stringify({ error: `Bad Request: ${error.message}` }), {
-             status: 400,
-             headers: { 'Content-Type': 'application/json' }
+             status: 400, headers: { 'Content-Type': 'application/json' }
         });
     }
     if (error.message.startsWith("Permission Denied:")) {
         return new Response( JSON.stringify({ error: error.message }), {
-             status: 403, // Forbidden
-             headers: { 'Content-Type': 'application/json' }
+             status: 403, headers: { 'Content-Type': 'application/json' }
         });
     }
     if (error.message.startsWith("Database Error:")) {
-         // Log the specific DB error but return a generic 500 to the client
          return new Response( JSON.stringify({ error: "Failed to create order due to a server database error." }), {
-            status: 500,
-            headers: { 'Content-Type': 'application/json' }
+            status: 500, headers: { 'Content-Type': 'application/json' }
          });
     }
 
-    // Generic fallback for unexpected errors during service call
+    // Generic fallback
     return new Response(
       JSON.stringify({ error: "An unexpected server error occurred while creating the order." }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }
@@ -1237,6 +1225,7 @@ export interface Order {
 // src/utils/auth.ts
 import type { Session } from '@supabase/supabase-js';
 import type { AstroCookies } from 'astro';
+import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from './constants'; // <-- IMPORT ADDED
 
 /**
  * Sets the Supabase access and refresh token cookies with consistent security attributes.
@@ -1247,8 +1236,6 @@ export function setAuthCookies(cookies: AstroCookies, session: Session | null | 
   // Ensure we have a session and tokens before proceeding
   if (!session?.access_token || !session?.refresh_token) {
       console.warn("setAuthCookies called without a valid session or tokens. Skipping cookie setting.");
-      // Optionally, clear existing cookies if session is null/undefined?
-      // deleteAuthCookies(cookies); // Be cautious if calling this here
       return;
   }
 
@@ -1261,28 +1248,24 @@ export function setAuthCookies(cookies: AstroCookies, session: Session | null | 
     httpOnly: true,
   };
 
-  // Calculate Access Token maxAge: Use expires_in (if valid > 0), default 1 hour.
-  // MUST be an integer, so use Math.floor().
   const rawAccessTokenMaxAge = (expires_in != null && expires_in > 0) ? expires_in : 3600;
-  const accessTokenMaxAge = Math.floor(rawAccessTokenMaxAge); // <-- THE FIX
+  const accessTokenMaxAge = Math.floor(rawAccessTokenMaxAge);
 
-  // Define Refresh Token maxAge: Typically longer, e.g., 7 days (already an integer)
   const refreshTokenMaxAge = 60 * 60 * 24 * 7; // 7 days in seconds
 
-  // Add a check/log if the calculated maxAge seems wrong
   if (accessTokenMaxAge <= 0) {
       console.warn(`Calculated accessTokenMaxAge is invalid (${accessTokenMaxAge}). Using default 3600.`);
-      // accessTokenMaxAge = 3600; // Re-assign default if needed, though floor(>0) should be >= 0
   }
 
   console.log(`Setting auth cookies. Access token maxAge: ${accessTokenMaxAge}s`);
 
-  cookies.set("sb-access-token", access_token, {
+  // Use constants for cookie names
+  cookies.set(ACCESS_TOKEN_COOKIE, access_token, { // <-- UPDATED
     ...baseCookieOptions,
-    maxAge: accessTokenMaxAge, // Pass the floored integer value
+    maxAge: accessTokenMaxAge,
   });
 
-  cookies.set("sb-refresh-token", refresh_token, {
+  cookies.set(REFRESH_TOKEN_COOKIE, refresh_token, { // <-- UPDATED
     ...baseCookieOptions,
     maxAge: refreshTokenMaxAge,
   });
@@ -1294,8 +1277,30 @@ export function setAuthCookies(cookies: AstroCookies, session: Session | null | 
  */
 export function deleteAuthCookies(cookies: AstroCookies): void {
     console.log("Deleting auth cookies.");
-    cookies.delete("sb-access-token", { path: "/" });
-    cookies.delete("sb-refresh-token", { path: "/" });
+    // Use constants for cookie names
+    cookies.delete(ACCESS_TOKEN_COOKIE, { path: "/" }); // <-- UPDATED
+    cookies.delete(REFRESH_TOKEN_COOKIE, { path: "/" }); // <-- UPDATED
 }
+```
+---
+
+`src/utils/constants.ts`:
+```
+// src/constants.ts
+
+// Cookie Names
+export const ACCESS_TOKEN_COOKIE = "sb-access-token";
+export const REFRESH_TOKEN_COOKIE = "sb-refresh-token";
+
+// API Paths
+export const AUTH_CALLBACK_PATH = "/api/auth/callback";
+
+// External Services Endpoints
+export const TURNSTILE_VERIFY_ENDPOINT = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
+
+// Add other constants here as needed, e.g.:
+// export const PROTECTED_PATHS = ["/dashboard"];
+// export const REDIRECT_PATHS = ["/signin"];
+// export const PROTECTED_API_PATHS = ["/api/guestbook", "/api/orders/create"];
 ```
 ---

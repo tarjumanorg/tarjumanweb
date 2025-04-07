@@ -1,5 +1,8 @@
+// src/env.d.ts
 declare namespace App {
   interface Locals {
-    email: string;
+    // Changed from email: string to userId?: string
+    // Optional because not all requests will have an authenticated user
+    userId?: string;
   }
 }

@@ -5,12 +5,23 @@ import { supabase } from "../lib/supabase";
 import Reviews from "../components/Reviews.astro";
 import type { GuestbookEntry } from "../types/types";
 
-const { email } = Astro.locals;
+// Astro.locals no longer contains 'email'. It now potentially contains 'userId'.
+// We won't display the user identifier here directly anymore for this example,
+// but you *could* use locals.userId to fetch more user details if needed.
+const { userId } = Astro.locals;
+
+// If the middleware didn't redirect, userId *should* be set, but we add a check.
+if (!userId) {
+  // This should technically not be reachable if middleware is correct,
+  // but acts as a safeguard or indicates a logic error in middleware.
+  return Astro.redirect("/signin");
+}
 
 let reviews: GuestbookEntry[] = [];
 let fetchError: string | null = null;
 
 try {
+  // Fetching reviews doesn't depend on userId unless you add RLS policies based on it
   const { data, error } = await supabase
     .from("guestbook")
     .select("name, message")
@@ -29,8 +40,11 @@ try {
 
 <Layout title="Dashboard">
   <section>
+    <!-- Removed the display of email -->
     <p>
-      Logged in as: <strong>{email}</strong>
+      <!-- You could display the user ID: <strong>User ID: {userId}</strong> -->
+      <!-- Or fetch user details based on userId if needed -->
+      Welcome! You are logged in.
     </p>
     <p>
       This is a protected page. You can only see this if you are logged in.

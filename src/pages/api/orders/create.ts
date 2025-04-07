@@ -1,19 +1,18 @@
 // src/pages/api/orders/create.ts
 import type { APIRoute } from "astro";
-import { supabase } from "../../../lib/supabase"; // Keep for auth check ONLY
-// Import the SERVICE function for database interaction
+import { supabase } from "../../../lib/supabase";
 import { createOrder } from "../../../services/order.service";
-import type { Order } from "../../../types/types"; // Import type if needed for request validation
+import type { Order } from "../../../types/types";
+import { ACCESS_TOKEN_COOKIE, TURNSTILE_VERIFY_ENDPOINT } from '../../../utils/constants'; // <-- IMPORTS UPDATED
 
 // --- Turnstile Configuration ---
-const TURNSTILE_VERIFY_ENDPOINT = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
+// const TURNSTILE_VERIFY_ENDPOINT = '...'; // Defined in constants now
 const TURNSTILE_SECRET_KEY = import.meta.env.TURNSTILE_SECRET_KEY;
 // --- End Turnstile ---
 
 export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
   console.log("API Route: POST /api/orders/create invoked.");
 
-  // --- Environment Variable Check ---
   if (!TURNSTILE_SECRET_KEY) {
       console.error("API Error: TURNSTILE_SECRET_KEY is not set.");
       return new Response(
@@ -26,7 +25,6 @@ export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
   let ordererName: string | undefined;
   let turnstileToken: string | undefined;
   try {
-    // Define expected body structure (optional but good practice)
     interface OrderRequestBody {
         orderer_name?: string;
         turnstileToken?: string;
@@ -64,7 +62,8 @@ export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
           console.warn("API Route: Verifying Turnstile without remoteip.");
       }
 
-      const verifyResponse = await fetch(TURNSTILE_VERIFY_ENDPOINT, {
+      // Use constant for endpoint
+      const verifyResponse = await fetch(TURNSTILE_VERIFY_ENDPOINT, { // <-- UPDATED
           method: 'POST',
           body: verifyPayload,
       });
@@ -75,7 +74,7 @@ export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
           console.warn("API Route: Turnstile verification failed.", verifyOutcome['error-codes']);
           return new Response(
               JSON.stringify({ error: "CAPTCHA verification failed.", codes: verifyOutcome['error-codes'] || [] }),
-              { status: 403, headers: { 'Content-Type': 'application/json' } } // 403 Forbidden
+              { status: 403, headers: { 'Content-Type': 'application/json' } }
           );
       }
       console.log("API Route: Turnstile verification successful for hostname:", verifyOutcome.hostname);
@@ -92,22 +91,20 @@ export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
   let userId: string;
   try {
       console.log("API Route: Verifying user authentication...");
-      const accessToken = cookies.get("sb-access-token");
+      // Use constant for cookie name
+      const accessToken = cookies.get(ACCESS_TOKEN_COOKIE); // <-- UPDATED
       if (!accessToken) {
           console.log("API Error: No access token found after CAPTCHA success.");
-          // Middleware should ideally catch this, but double-check
           return new Response(JSON.stringify({ error: "Unauthorized: Authentication token missing." }), { status: 401, headers: { 'Content-Type': 'application/json' } });
       }
 
-      // Use Supabase client *only* for auth check here
       const { data: { user }, error: userError } = await supabase.auth.getUser(accessToken.value);
 
       if (userError || !user) {
           console.error("API Error: Invalid session token after CAPTCHA.", userError?.message);
-          // Consider attempting refresh here or instruct client to re-auth? For now, fail.
-          // Clean up potentially invalid cookies?
-          // cookies.delete("sb-access-token", { path: "/" });
-          // cookies.delete("sb-refresh-token", { path: "/" });
+          // Note: Middleware should handle refresh if possible. If it reaches here with invalid token and no refresh,
+          // deleting cookies might be appropriate, although the middleware already does this on failure.
+          // deleteAuthCookies(cookies); // Consider if needed here, likely redundant with middleware
           return new Response(JSON.stringify({ error: "Unauthorized: Invalid or expired session." }), { status: 401, headers: { 'Content-Type': 'application/json' } });
       }
       userId = user.id;
@@ -122,13 +119,12 @@ export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
   // --- 4. Call the Order Service ---
   try {
     console.log(`API Route: Calling createOrder service for user ${userId}`);
-    // Pass necessary data (userId, ordererName) to the service
-    const newOrder = await createOrder(userId, ordererName); // Service handles DB interaction
+    const newOrder = await createOrder(userId, ordererName);
 
     // --- 5. Return Success Response ---
     console.log("API Route: Order created successfully:", newOrder.id);
     return new Response(JSON.stringify(newOrder), {
-        status: 201, // Created
+        status: 201,
         headers: { 'Content-Type': 'application/json' }
      });
 
@@ -136,28 +132,23 @@ export const POST: APIRoute = async ({ request, cookies, clientAddress }) => {
     // --- 6. Handle Errors from Service ---
     console.error("API Error (POST /api/orders/create - Service Call):", error.message);
 
-    // Map specific errors from the service to appropriate HTTP statuses
     if (error.message.startsWith("Validation Error:")) {
         return new Response( JSON.stringify({ error: `Bad Request: ${error.message}` }), {
-             status: 400,
-             headers: { 'Content-Type': 'application/json' }
+             status: 400, headers: { 'Content-Type': 'application/json' }
         });
     }
     if (error.message.startsWith("Permission Denied:")) {
         return new Response( JSON.stringify({ error: error.message }), {
-             status: 403, // Forbidden
-             headers: { 'Content-Type': 'application/json' }
+             status: 403, headers: { 'Content-Type': 'application/json' }
         });
     }
     if (error.message.startsWith("Database Error:")) {
-         // Log the specific DB error but return a generic 500 to the client
          return new Response( JSON.stringify({ error: "Failed to create order due to a server database error." }), {
-            status: 500,
-            headers: { 'Content-Type': 'application/json' }
+            status: 500, headers: { 'Content-Type': 'application/json' }
          });
     }
 
-    // Generic fallback for unexpected errors during service call
+    // Generic fallback
     return new Response(
       JSON.stringify({ error: "An unexpected server error occurred while creating the order." }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }
