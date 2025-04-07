@@ -43,11 +43,7 @@ declare namespace App {
 ---
 // src/components/Reviews.astro
 import type { GuestbookEntry } from "../types/types";
-
-interface Props {
-  reviews: GuestbookEntry[];
-}
-
+interface Props { reviews: GuestbookEntry[]; }
 const { reviews } = Astro.props;
 ---
 
@@ -57,44 +53,36 @@ const { reviews } = Astro.props;
     method="post"
     action="/api/guestbook"
   >
-    <h3 >Leave a message</h3>
+    <h3>Leave a message</h3>
+    {/* Added min-height and margin for better layout */}
+    <div id="form-status" aria-live="polite" style="min-height: 1.5em; margin-bottom: 1em; font-weight: bold;"></div>
 
-
-    <div id="form-status"></div>
-
-    <div >
-      <label
-        for="name"
-      >
-        Name
-      </label>
+    <div>
+      <label for="name">Name</label>
       <input
         id="name"
         type="text"
         placeholder="Your Name"
         required
         name="name"
-            />
+      />
     </div>
-    <div >
-      <label
-        for="message"
-              >
-        Message
-      </label>
-
+    <div>
+      <label for="message">Message</label>
       <input
         id="message"
         type="text"
         placeholder="A friendly message..."
         required
         name="message"
-           />
+      />
     </div>
+    {/* Added data-original-text attribute for handler */}
     <button
       id="submit-button"
       type="submit"
-        >
+      data-original-text="Submit"
+    >
       Submit
     </button>
   </form>
@@ -105,11 +93,7 @@ const { reviews } = Astro.props;
         <ul>
         {reviews.map((review) => (
             <li>
-            <p>
-              
-                {review.name}
-
-            </p>
+            <p><strong>{review.name}</strong></p> {/* Made name bold */}
             <p>{review.message}</p>
             </li>
         ))}
@@ -121,54 +105,72 @@ const { reviews } = Astro.props;
 </div>
 
 <script>
-  const form = document.getElementById('guestbook-form') as HTMLFormElement;
-  const nameInput = document.getElementById('name') as HTMLInputElement;
-  const messageInput = document.getElementById('message') as HTMLInputElement;
-  const statusDiv = document.getElementById('form-status');
-  const submitButton = document.getElementById('submit-button') as HTMLButtonElement;
+  // Import the simplified setup function and types
+  import { setupFormSubmitListener } from '../utils/formHandler';
+  import type { FormSubmitOptions } from '../types/types'; // <-- CHANGE THIS LINE'S PATH
+
+  const form = document.getElementById('guestbook-form') as HTMLFormElement | null;
+  const nameInput = document.getElementById('name') as HTMLInputElement | null;
+  const messageInput = document.getElementById('message') as HTMLInputElement | null;
+  const statusDiv = document.getElementById('form-status') as HTMLElement | null;
+  const submitButton = document.getElementById('submit-button') as HTMLButtonElement | null;
 
   if (form && nameInput && messageInput && statusDiv && submitButton) {
-    form.addEventListener('submit', async (event) => {
-      event.preventDefault();
 
-      statusDiv.textContent = '';
-      submitButton.disabled = true;
-      submitButton.textContent = 'Submitting...';
+    const preparePayloadForReview = (): Record<string, any> | null => {
+      const name = nameInput.value.trim();
+      const message = messageInput.value.trim();
 
-      const name = nameInput.value;
-      const message = messageInput.value;
-
-      const payload = JSON.stringify({ name, message });
-
-      try {
-        const response = await fetch(form.action, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-          },
-          body: payload,
-        });
-
-
-        const data = await response.json(); 
-
-        if (!response.ok) {
-          throw new Error(data.error || `HTTP error! Status: ${response.status}`);
+      if (!name || !message) {
+        if (statusDiv) {
+          statusDiv.textContent = 'Please enter both name and message.';
+          statusDiv.style.color = 'red';
         }
-
-        statusDiv.textContent = 'Message submitted successfully!';
-        form.reset();
-
-      } catch (error: any) {
-        console.error('Submission error:', error);
-        statusDiv.textContent = `Error: ${error.message || 'Could not submit message.'}`;
-
-      } finally {
-        submitButton.disabled = false;
-        submitButton.textContent = 'Submit';
+        // Return null to signal validation failure
+        return null;
       }
-    });
+      // Return payload if valid
+      return { name, message };
+    };
+
+    const onReviewSuccess = (data: any, formElement: HTMLFormElement) => {
+      if (statusDiv) {
+        statusDiv.textContent = 'Message submitted successfully!';
+        statusDiv.style.color = 'green';
+      }
+      formElement.reset();
+      // IMPORTANT: This simple example doesn't dynamically update the list above.
+      // A page refresh would be needed to see the new entry, or use
+      // more advanced techniques (HTMX, Alpine, framework component).
+      console.log("Submitted data:", data);
+      // Optional: Clear success message after a delay
+      setTimeout(() => { if(statusDiv) statusDiv.textContent = ''; }, 5000);
+    };
+
+    const onReviewError = (error: Error, statusElement: HTMLElement | null) => {
+       if (statusElement) {
+         statusElement.textContent = `Error: ${error.message || 'Could not submit message.'}`;
+         statusElement.style.color = 'red';
+       }
+       // Optional: Clear error message after a delay
+       // setTimeout(() => { if(statusDiv) statusDiv.textContent = ''; }, 8000);
+    };
+
+    // Define options for the handler
+    const options: FormSubmitOptions = {
+      formElement: form,
+      statusElement: statusDiv,
+      submitButton: submitButton,
+      preparePayload: preparePayloadForReview,
+      onSuccess: onReviewSuccess,
+      onError: onReviewError,
+      // endpoint and method will be taken from the form's action and method attributes
+      submitText: "Submit" // Explicitly set restore text if needed
+    };
+
+    // Use the setup function for simple forms
+    setupFormSubmitListener(options);
+
   } else {
     console.error('Could not find all required form elements for guestbook submission script.');
   }
@@ -361,60 +363,35 @@ export const onRequest = defineMiddleware(
 ---
 // src/pages/dashboard.astro
 import Layout from "../layout/Layout.astro";
-import { supabase } from "../lib/supabase";
+import { getAllGuestbookEntries } from "../services/guestbook.service";
 import Reviews from "../components/Reviews.astro";
 import type { GuestbookEntry } from "../types/types";
 
-// Astro.locals no longer contains 'email'. It now potentially contains 'userId'.
-// We won't display the user identifier here directly anymore for this example,
-// but you *could* use locals.userId to fetch more user details if needed.
-const { userId } = Astro.locals;
-
-// If the middleware didn't redirect, userId *should* be set, but we add a check.
-if (!userId) {
-  // This should technically not be reachable if middleware is correct,
-  // but acts as a safeguard or indicates a logic error in middleware.
-  return Astro.redirect("/signin");
-}
+const { userId } = Astro.locals as { userId: string };
 
 let reviews: GuestbookEntry[] = [];
 let fetchError: string | null = null;
 
 try {
-  // Fetching reviews doesn't depend on userId unless you add RLS policies based on it
-  const { data, error } = await supabase
-    .from("guestbook")
-    .select("name, message")
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    throw error;
-  }
-  reviews = data as GuestbookEntry[];
+  reviews = await getAllGuestbookEntries();
 
 } catch (e: any) {
    fetchError = `Failed to load reviews: ${e.message}`;
-   console.error("Error fetching reviews:", e);
+   console.error("Error fetching reviews via service:", e);
 }
 ---
 
 <Layout title="Dashboard">
   <section>
-    <!-- Removed the display of email -->
     <p>
-      <!-- You could display the user ID: <strong>User ID: {userId}</strong> -->
-      <!-- Or fetch user details based on userId if needed -->
-      Welcome! You are logged in.
+      Welcome! You are logged in. (User ID: {userId})
     </p>
     <p>
       This is a protected page. You can only see this if you are logged in.
     </p>
-    <a
-      href="/api/auth/signout"
-      >Sign out</a
-    >
+    <a href="/api/auth/signout">Sign out</a>
 
-    {fetchError && <p>{fetchError}</p>}
+    {fetchError && <p style="color: red;">{fetchError}</p>}
 
     <Reviews reviews={reviews} />
   </section>
@@ -456,7 +433,7 @@ const title = "Supabase and Astro Demo";
 import Layout from "../layout/Layout.astro";
 
 const title = "Place Your Order";
-// Your Turnstile Site Key (safe to be public)
+// Ensure this key is correct for your Cloudflare Turnstile site
 const turnstileSiteKey = "0x4AAAAAABDz77Fkj-zw6ls4";
 ---
 
@@ -470,7 +447,8 @@ const turnstileSiteKey = "0x4AAAAAABDz77Fkj-zw6ls4";
       <h1>{title}</h1>
       <p>Enter your name to start your order.</p>
 
-      <form id="order-form">
+      {/* Ensure form has action and method for the handler */}
+      <form id="order-form" action="/api/orders/create" method="post">
         <div>
           <label for="orderer-name">Your Name:</label>
           <input
@@ -482,20 +460,27 @@ const turnstileSiteKey = "0x4AAAAAABDz77Fkj-zw6ls4";
           />
         </div>
 
-        <!-- Add the Turnstile Widget Div here -->
+        <!-- Turnstile Widget -->
         <div
           class="cf-turnstile"
           data-sitekey={turnstileSiteKey}
           style="margin-top: 1rem;"
         >
         </div>
-        <!-- End Turnstile Widget Div -->
+        <!-- End Turnstile Widget -->
 
-        <div id="order-status" aria-live="polite" style="margin-top: 1rem; min-height: 1.5em;">
+        {/* Status display area */}
+        <div id="order-status" aria-live="polite" style="margin-top: 1rem; min-height: 1.5em; font-weight: bold;">
           {/* Status messages will appear here */}
         </div>
 
-        <button type="submit" id="submit-order-button" style="margin-top: 1rem;">
+        {/* Submit button with data attribute */}
+        <button
+          type="submit"
+          id="submit-order-button"
+          style="margin-top: 1rem;"
+          data-original-text="Submit Order"
+        >
           Submit Order
         </button>
       </form>
@@ -505,124 +490,125 @@ const turnstileSiteKey = "0x4AAAAAABDz77Fkj-zw6ls4";
 </Layout>
 
 <script>
-  // No changes needed for supabase import if you keep the server-side anonymous auth
-  // import { supabase } from '../lib/supabase';
+  // Import the core submission logic and Turnstile reset helper
+  import { submitFormData, resetTurnstileWidget } from '../utils/formHandler';
+import type { FormSubmitOptions } from '../types/types'; // <-- CHANGE THIS LINE'S PATH
 
   const form = document.getElementById('order-form') as HTMLFormElement | null;
   const nameInput = document.getElementById('orderer-name') as HTMLInputElement | null;
   const submitButton = document.getElementById('submit-order-button') as HTMLButtonElement | null;
-  const statusDiv = document.getElementById('order-status');
-  // Implicit rendering adds a hidden input with this name
-  const turnstileResponseInputName = 'cf-turnstile-response';
+  const statusDiv = document.getElementById('order-status') as HTMLElement | null;
+  const turnstileResponseInputName = 'cf-turnstile-response'; // Default name for implicit rendering
 
   if (form && nameInput && submitButton && statusDiv) {
+
+    // Add the event listener directly as we have a pre-submission step (auth)
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
 
-      const ordererName = nameInput.value.trim();
-
-      if (!ordererName) {
-        statusDiv.textContent = 'Please enter your name.';
-        statusDiv.style.color = 'red';
-        nameInput.focus();
-        return;
+      // --- Pre-submission Step: Anonymous Authentication ---
+      if (statusDiv) statusDiv.textContent = 'Ensuring session...';
+      if (submitButton) {
+          submitButton.disabled = true; // Disable button during auth check
+          submitButton.textContent = 'Initializing...'; // Indicate activity
       }
-
-      // --- Get the Turnstile token ---
-      const formData = new FormData(form);
-      const turnstileToken = formData.get(turnstileResponseInputName)?.toString();
-
-      if (!turnstileToken) {
-        statusDiv.textContent = 'CAPTCHA challenge failed or is missing. Please wait or refresh.';
-        statusDiv.style.color = 'red';
-        // Optionally reset the widget if you have its ID, or just prompt user
-        // turnstile.reset('#turnstile-widget-id'); // Requires explicit rendering or getting the ID
-        return;
-      }
-      // --- End Get Turnstile token ---
-
-
-      submitButton.disabled = true;
-      submitButton.textContent = 'Processing...';
-      statusDiv.textContent = 'Processing your request...';
-      statusDiv.style.color = 'inherit';
 
       try {
-        // 1. Ensure Authentication via Server Endpoint (from previous step)
-        statusDiv.textContent = 'Ensuring session...';
         const authResponse = await fetch('/api/auth/anonymous', { method: 'POST' });
-
         if (!authResponse.ok) {
-           const errorData = await authResponse.json().catch(() => ({}));
-           console.error("Anonymous auth endpoint error:", authResponse.status, errorData);
-           throw new Error(errorData.error || `Authentication setup failed: Status ${authResponse.status}`);
+          let errorMsg = 'Authentication setup failed.';
+          try {
+              const errorData = await authResponse.json();
+              errorMsg = errorData.error || `Authentication setup failed: Status ${authResponse.status}`;
+          } catch(e) { /* Ignore JSON parse error on auth failure */ }
+          throw new Error(errorMsg);
         }
         console.log("Session ensured via server endpoint.");
 
-        // 2. Submit the order data (including Turnstile token)
-        statusDiv.textContent = 'Submitting order...';
+        // --- Auth successful, proceed with form data submission ---
 
-        const orderPayload = {
-          orderer_name: ordererName,
-          turnstileToken: turnstileToken // Include the token here
+        // Define callbacks and payload preparation *inside* the listener's success path
+        const preparePayloadForOrder = (): Record<string, any> | null => {
+          const ordererName = nameInput.value.trim();
+          const formData = new FormData(form); // Get form data AFTER auth ensures form isn't cleared prematurely
+          const turnstileToken = formData.get(turnstileResponseInputName)?.toString();
+
+          if (!ordererName) {
+              if (statusDiv) { statusDiv.textContent = 'Please enter your name.'; statusDiv.style.color = 'red'; }
+              nameInput.focus();
+              return null; // Validation failure
+          }
+          if (!turnstileToken) {
+              if (statusDiv) { statusDiv.textContent = 'CAPTCHA challenge failed, missing, or expired. Please try again.'; statusDiv.style.color = 'red'; }
+              resetTurnstileWidget(form); // Reset Turnstile on failure
+              return null; // Validation failure
+          }
+          // Return payload if valid
+          return { orderer_name: ordererName, turnstileToken };
         };
 
-        const orderResponse = await fetch('/api/orders/create', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-          },
-          body: JSON.stringify(orderPayload), // Send the payload including token
-        });
-
-        if (!orderResponse.ok) {
-          let errorMsg = `HTTP error! Status: ${orderResponse.status}`;
-          try {
-            const errorData = await orderResponse.json();
-            errorMsg = errorData.error || errorMsg;
-          } catch (parseError) {}
-          console.error("Order submission failed:", errorMsg);
-          if (orderResponse.status === 401) {
-            errorMsg = "Authorization failed. Please try refreshing the page.";
-          } else if (orderResponse.status === 403) { // Handle Turnstile failure explicitly
-             errorMsg = `CAPTCHA verification failed: ${errorMsg}. Please try again.`;
+        const onOrderSuccess = (data: any, formElement: HTMLFormElement) => {
+          if (statusDiv) {
+              statusDiv.textContent = `Order submitted successfully! Order ID: ${data.id}`;
+              statusDiv.style.color = 'green';
           }
-          throw new Error(`Order submission failed: ${errorMsg}`);
-        }
+          formElement.reset(); // Reset form fields
+          resetTurnstileWidget(formElement); // Reset Turnstile widget
+          // Optional: Clear success message after delay
+          setTimeout(() => { if(statusDiv) statusDiv.textContent = ''; }, 5000);
+        };
 
-        const createdOrder = await orderResponse.json();
-        console.log("Order created:", createdOrder);
-        statusDiv.textContent = `Order submitted successfully! Order ID: ${createdOrder.id}`;
-        statusDiv.style.color = 'green';
-        form.reset();
-        // Reset Turnstile widget after successful submission (optional but good practice)
-        // Requires explicit rendering and storing widgetId, or targeting the element
-        try {
-          const widgetElement = form.querySelector('.cf-turnstile');
-          if (widgetElement && (window as any).turnstile) {
-             (window as any).turnstile.reset(widgetElement);
+        const onOrderError = (error: Error, statusElement: HTMLElement | null) => {
+          if (statusElement) {
+             // Provide specific feedback for CAPTCHA failure
+             if (error.message.includes("CAPTCHA verification failed")) {
+                 statusElement.textContent = `Error: CAPTCHA verification failed. Please try again. (${error.message})`;
+             } else if (error.message.includes("missing") || error.message.includes("expired")) {
+                 statusElement.textContent = `Error: CAPTCHA challenge failed or expired. Please wait and try again. (${error.message})`;
+             }
+             else {
+                 statusElement.textContent = `Error: ${error.message || 'An unexpected error occurred.'}`;
+             }
+             statusElement.style.color = 'red';
           }
-        } catch(e) { console.warn("Could not reset Turnstile widget", e); }
+          // Always reset Turnstile on error for a fresh challenge
+          resetTurnstileWidget(form);
+        };
 
+        // Prepare options for the submitFormData utility
+        const options: FormSubmitOptions = {
+          formElement: form,
+          statusElement: statusDiv,
+          submitButton: submitButton,
+          preparePayload: preparePayloadForOrder,
+          onSuccess: onOrderSuccess,
+          onError: onOrderError,
+          // endpoint and method are from form attributes
+          submittingText: 'Submitting Order...', // Custom submitting text
+          submitText: 'Submit Order' // Restore text
+        };
 
-      } catch (error: any) {
-        console.error('Order process error:', error);
-        statusDiv.textContent = `Error: ${error.message || 'An unexpected error occurred.'}`;
-        statusDiv.style.color = 'red';
-        // Optionally reset Turnstile here too on error
-         try {
-           const widgetElement = form.querySelector('.cf-turnstile');
-           if (widgetElement && (window as any).turnstile) {
-              (window as any).turnstile.reset(widgetElement);
-           }
-         } catch(e) { console.warn("Could not reset Turnstile widget on error", e); }
+        // Call the reusable submission logic function
+        await submitFormData(options);
+        // submitFormData handles the button state during its execution (try/finally)
 
-      } finally {
-        submitButton.disabled = false;
-        submitButton.textContent = 'Submit Order';
+      } catch (authError: any) {
+         // Handle errors specifically from the anonymous auth step
+         console.error('Anonymous auth error:', authError);
+         if (statusDiv) {
+            statusDiv.textContent = `Error: ${authError.message || 'Failed to prepare session.'}`;
+            statusDiv.style.color = 'red';
+         }
+         // Ensure button is re-enabled if auth fails before submitFormData is called
+         if (submitButton) {
+            submitButton.disabled = false;
+            submitButton.textContent = submitButton.dataset.originalText || 'Submit Order';
+         }
+         // Reset turnstile even on auth errors
+         resetTurnstileWidget(form);
       }
-    });
+    }); // End of form event listener
+
   } else {
     console.error('Could not find all required elements for the order form script.');
   }
@@ -805,31 +791,30 @@ export const GET: APIRoute = async ({ cookies, redirect }) => {
 import type { APIRoute } from "astro";
 import { getAllGuestbookEntries, createGuestbookEntry } from "../../../services/guestbook.service";
 import type { GuestbookEntry } from "../../../types/types";
-import { jsonResponse, jsonErrorResponse } from '../../../utils/apiResponse'; // <-- IMPORT ADDED
+import { jsonResponse, jsonErrorResponse } from '../../../utils/apiResponse';
 
+// GET handler remains unchanged
 export const GET: APIRoute = async () => {
   console.log("API Route: GET /api/guestbook invoked.");
   try {
     const entries = await getAllGuestbookEntries();
-    // Use utility function for success response
-    return jsonResponse(200, entries); // <-- UPDATED
+    return jsonResponse(200, entries);
   } catch (error: any) {
     console.error("API Error (GET /api/guestbook):", error.message);
-    // Use utility function for error response
-    return jsonErrorResponse(500, "Failed to retrieve guestbook entries."); // <-- UPDATED
+    return jsonErrorResponse(500, "Failed to retrieve guestbook entries.");
   }
 };
 
 export const POST: APIRoute = async ({ request, locals }) => {
   console.log("API Route: POST /api/guestbook invoked.");
 
-  const userId = locals.userId;
-  if (!userId) {
-      console.error("API Error: No userId found in locals for protected route /api/guestbook");
-      // Use utility function for error response
-      return jsonErrorResponse(401, "Unauthorized: Missing user session."); // <-- UPDATED
-  }
+  // --- OPTIMIZATION ---
+  // The middleware already ensures that locals.userId is present for this route.
+  // We can safely use the non-null assertion operator (!).
+  // The redundant check 'if (!userId) { ... }' has been removed.
+  const userId = locals.userId!;
   console.log(`API Route: User authenticated via middleware. User ID: ${userId}. Ready to create guestbook entry.`);
+  // --- END OPTIMIZATION ---
 
   try {
     let name: string;
@@ -841,37 +826,34 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
         if (!name || !message) {
             console.log("API Error: Missing or empty name or message in request body.");
-            // Use utility function for error response
-            return jsonErrorResponse(400, "Bad Request: Name and message are required and cannot be empty."); // <-- UPDATED
+            return jsonErrorResponse(400, "Bad Request: Name and message are required and cannot be empty.");
         }
     } catch (e) {
         console.log("API Error: Invalid JSON body received.");
-        // Use utility function for error response
-        return jsonErrorResponse(400, "Bad Request: Invalid JSON body."); // <-- UPDATED
+        return jsonErrorResponse(400, "Bad Request: Invalid JSON body.");
     }
 
+    // Note: userId isn't directly used by createGuestbookEntry in this example,
+    // but it confirms the user is authenticated as required by the middleware.
     const newEntry = await createGuestbookEntry(name, message);
 
     console.log("API Route: Guestbook entry created successfully.");
-    // Use utility function for success response
-    return jsonResponse(201, newEntry); // <-- UPDATED
+    return jsonResponse(201, newEntry);
 
   } catch (error: any) {
     console.error("API Error (POST /api/guestbook):", error.message);
 
-    // Use utility function for error responses based on service error messages
+    // Error handling remains the same
     if (error.message.startsWith("Validation Error:")) {
-         return jsonErrorResponse(400, error.message); // <-- UPDATED
+         return jsonErrorResponse(400, error.message);
     }
     if (error.message.startsWith("Permission Denied:")) {
-         return jsonErrorResponse(403, error.message); // <-- UPDATED
+         return jsonErrorResponse(403, error.message);
     }
      if (error.message.startsWith("Database Error:")) {
-         return jsonErrorResponse(500, "Failed to submit guestbook entry due to a server error."); // <-- UPDATED (Generic message for DB error)
+         return jsonErrorResponse(500, "Failed to submit guestbook entry due to a server error.");
      }
-
-    // Fallback for unexpected errors
-    return jsonErrorResponse(500, "An unexpected error occurred while submitting the guestbook entry."); // <-- UPDATED
+    return jsonErrorResponse(500, "An unexpected error occurred while submitting the guestbook entry.");
   }
 };
 ```
@@ -882,114 +864,86 @@ export const POST: APIRoute = async ({ request, locals }) => {
 // src/pages/api/orders/create.ts
 import type { APIRoute } from "astro";
 import { createOrder } from "../../../services/order.service";
-import { TURNSTILE_VERIFY_ENDPOINT } from '../../../utils/constants';
-import { jsonResponse, jsonErrorResponse } from '../../../utils/apiResponse'; // <-- IMPORT ADDED
+import { verifyTurnstileToken } from '../../../utils/turnstile'; // <-- IMPORT the new utility
+import { jsonResponse, jsonErrorResponse } from '../../../utils/apiResponse';
 
-const TURNSTILE_SECRET_KEY = import.meta.env.TURNSTILE_SECRET_KEY;
+// TURNSTILE_SECRET_KEY is no longer needed here
 
 export const POST: APIRoute = async ({ request, locals, clientAddress }) => {
   console.log("API Route: POST /api/orders/create invoked.");
 
-  const userId = locals.userId;
-  if (!userId) {
-      console.error("API Error: No userId found in locals for protected route /api/orders/create");
-      // Use utility function for error response
-      return jsonErrorResponse(401, "Unauthorized: Missing user session."); // <-- UPDATED
-  }
+  // --- Authentication Check (remains the same) ---
+  const userId = locals.userId!; // Asserting non-null based on middleware guarantee
   console.log(`API Route: User authenticated via middleware. User ID: ${userId}`);
+  // ---
 
-  if (!TURNSTILE_SECRET_KEY) {
-      console.error("API Error: TURNSTILE_SECRET_KEY is not set.");
-      // Use utility function for error response
-      return jsonErrorResponse(500, "Server configuration error: CAPTCHA secret missing."); // <-- UPDATED
-  }
-
+  // --- Request Body Parsing & Validation (remains the same) ---
   let ordererName: string | undefined;
   let turnstileToken: string | undefined;
   try {
     interface OrderRequestBody {
         orderer_name?: string;
-        turnstileToken?: string;
+        turnstileToken?: string; // Field name from client-side payload
     }
     const body: OrderRequestBody = await request.json();
     ordererName = body.orderer_name?.toString().trim();
-    turnstileToken = body.turnstileToken?.toString();
+    turnstileToken = body.turnstileToken?.toString(); // Extract token
 
     if (!ordererName) {
         console.log("API Error: Missing or empty orderer_name in request body.");
-        // Use utility function for error response
-        return jsonErrorResponse(400, "Bad Request: Orderer name is required."); // <-- UPDATED
+        return jsonErrorResponse(400, "Bad Request: Orderer name is required.");
     }
     if (!turnstileToken) {
         console.log("API Error: Missing turnstileToken in request body.");
-        // Use utility function for error response
-        return jsonErrorResponse(400, "Bad Request: CAPTCHA token is missing."); // <-- UPDATED
+        return jsonErrorResponse(400, "Bad Request: CAPTCHA token is missing.");
     }
   } catch (error) {
     console.log("API Error: Invalid JSON body received.");
-    // Use utility function for error response
-    return jsonErrorResponse(400, "Bad Request: Invalid JSON body."); // <-- UPDATED
+    return jsonErrorResponse(400, "Bad Request: Invalid JSON body.");
   }
+  // ---
 
+  // --- Turnstile Verification (using the new utility) ---
   try {
-      console.log("API Route: Verifying Turnstile token...");
-      const verifyPayload = new URLSearchParams();
-      verifyPayload.append('secret', TURNSTILE_SECRET_KEY);
-      verifyPayload.append('response', turnstileToken);
+    console.log("API Route: Calling Turnstile verification utility...");
+    // Get client IP (handle potential proxy headers like Netlify's)
+    const forwardedIp = request.headers.get('x-nf-client-connection-ip');
+    const remoteIp = forwardedIp || clientAddress;
 
-      const forwardedIp = request.headers.get('x-nf-client-connection-ip');
-      const remoteIp = forwardedIp || clientAddress;
-      if (remoteIp) {
-          verifyPayload.append('remoteip', remoteIp);
-          console.log("API Route: Verifying Turnstile with remoteip:", remoteIp);
-      } else {
-          console.warn("API Route: Verifying Turnstile without remoteip.");
-      }
+    // Call the abstracted verification function
+    await verifyTurnstileToken(turnstileToken, remoteIp);
 
-      const verifyResponse = await fetch(TURNSTILE_VERIFY_ENDPOINT, {
-          method: 'POST',
-          body: verifyPayload,
-      });
-      const verifyOutcome = await verifyResponse.json();
-      console.log("API Route: Turnstile verification outcome:", verifyOutcome);
-
-      if (!verifyOutcome.success) {
-          console.warn("API Route: Turnstile verification failed.", verifyOutcome['error-codes']);
-          // Use utility function for error response
-          return jsonErrorResponse(403, `CAPTCHA verification failed. Codes: ${ (verifyOutcome['error-codes'] || []).join(', ') }`); // <-- UPDATED
-      }
-      console.log("API Route: Turnstile verification successful for hostname:", verifyOutcome.hostname);
+    console.log("API Route: Turnstile verification successful.");
 
   } catch (error: any) {
-      console.error("API Error: Exception during Turnstile verification:", error);
-      // Use utility function for error response
-      return jsonErrorResponse(500, "Server error during CAPTCHA verification."); // <-- UPDATED
+    console.warn("API Route: Turnstile verification failed.", error.message);
+    // Check for specific configuration error
+    if (error.message.startsWith("Server configuration error")) {
+        return jsonErrorResponse(500, error.message);
+    }
+    // Treat other errors as client-side verification failures (403 Forbidden)
+    return jsonErrorResponse(403, `CAPTCHA verification failed: ${error.message}`);
   }
+  // ---
 
+  // --- Order Creation (remains the same) ---
   try {
     console.log(`API Route: Calling createOrder service for user ${userId} with name ${ordererName}`);
     const newOrder = await createOrder(userId, ordererName);
-
     console.log("API Route: Order created successfully:", newOrder.id);
-    // Use utility function for success response
-    return jsonResponse(201, newOrder); // <-- UPDATED
+    return jsonResponse(201, newOrder);
 
   } catch (error: any) {
     console.error("API Error (POST /api/orders/create - Service Call):", error.message);
-
-    // Use utility function for error responses based on service error messages
+    // Specific error handling based on service errors (remains the same)
     if (error.message.startsWith("Validation Error:")) {
-        return jsonErrorResponse(400, error.message); // <-- UPDATED
+        return jsonErrorResponse(400, error.message);
     }
-    if (error.message.startsWith("Permission Denied:")) {
-        return jsonErrorResponse(403, error.message); // <-- UPDATED
-    }
+    // ... other specific service error checks ...
     if (error.message.startsWith("Database Error:")) {
-         return jsonErrorResponse(500, "Failed to create order due to a server database error."); // <-- UPDATED (Generic message for DB error)
+         return jsonErrorResponse(500, "Failed to create order due to a server database error.");
     }
-
-    // Generic fallback for unexpected errors
-    return jsonErrorResponse(500, "An unexpected server error occurred while creating the order."); // <-- UPDATED
+    return jsonErrorResponse(500, "An unexpected server error occurred while creating the order.");
   }
 };
 ```
@@ -1000,26 +954,26 @@ export const POST: APIRoute = async ({ request, locals, clientAddress }) => {
 // src/services/guestbook.service.ts
 import { supabase } from '../lib/supabase'; // Import the initialized client
 import type { GuestbookEntry } from '../types/types'; // Use our defined type
+import { handleSupabaseError } from '../utils/supabaseUtils'; // <-- IMPORT ADDED
 
 /**
  * Fetches all guestbook entries, ordered by creation date (ascending).
  * Throws an error if the Supabase query fails.
  */
 export async function getAllGuestbookEntries(): Promise<GuestbookEntry[]> {
-  console.log("Service: Fetching all guestbook entries...");
+  const operationContext = "fetch guestbook entries";
+  console.log(`Service: ${operationContext}...`);
+
   const { data, error } = await supabase
     .from("guestbook")
     .select("name, message") // Select only needed fields defined in the type
     .order("created_at", { ascending: true }); // Or false based on desired display order
 
-  if (error) {
-    console.error("Service Error (getAllGuestbookEntries):", error);
-    // Throw a new error to be caught by the calling API route
-    throw new Error(`Failed to fetch guestbook entries: ${error.message}`);
-  }
+  // Use the utility function to handle potential errors
+  handleSupabaseError(error, operationContext); // <-- REPLACED if(error) block
 
+  // If handleSupabaseError didn't throw, the operation was successful (though data might be empty)
   console.log("Service: Fetched entries successfully.");
-  // You might add more robust validation here depending on needs
   return data as GuestbookEntry[];
 }
 
@@ -1031,13 +985,14 @@ export async function getAllGuestbookEntries(): Promise<GuestbookEntry[]> {
  * @returns The newly created guestbook entry (only name and message).
  */
 export async function createGuestbookEntry(name: string, message: string): Promise<GuestbookEntry> {
-  // Basic validation within the service
+  // Basic validation within the service (remains unchanged)
   if (!name || !message || name.trim().length === 0 || message.trim().length === 0) {
       throw new Error("Validation Error: Name and message cannot be empty.");
   }
 
   const trimmedName = name.trim();
   const trimmedMessage = message.trim();
+  const operationContext = "create guestbook entry";
 
   console.log(`Service: Creating guestbook entry for '${trimmedName}'...`);
   const { data, error } = await supabase
@@ -1046,21 +1001,14 @@ export async function createGuestbookEntry(name: string, message: string): Promi
     .select("name, message") // Select the fields matching GuestbookEntry type
     .single(); // Expecting a single row back after insert
 
-  if (error) {
-    console.error("Service Error (createGuestbookEntry):", error);
-    // Check for specific Supabase errors if needed (e.g., RLS violation '42501')
-    if (error.code === '42501') {
-        // Make error more specific for API layer to handle
-        throw new Error("Permission Denied: Cannot create guestbook entry. Check RLS policies.");
-    }
-    // Generic database error
-    throw new Error(`Database Error: Failed to create guestbook entry: ${error.message}`);
-  }
+  // Use the utility function to handle potential errors
+  handleSupabaseError(error, operationContext); // <-- REPLACED if(error) block
 
+  // If handleSupabaseError didn't throw, check if data was returned (safeguard)
   if (!data) {
       // This case should ideally not be reached if insert succeeded without error,
       // but acts as a safeguard.
-      throw new Error("Database Error: Failed to create guestbook entry: No data returned after insert.");
+      throw new Error(`Database Error: Failed to ${operationContext}: No data returned after insert.`);
   }
 
   console.log("Service: Created entry successfully.");
@@ -1074,6 +1022,7 @@ export async function createGuestbookEntry(name: string, message: string): Promi
 // src/services/order.service.ts
 import { supabase } from '../lib/supabase';
 import type { Order } from '../types/types'; // Import the Order type
+import { handleSupabaseError } from '../utils/supabaseUtils'; // <-- IMPORT ADDED
 
 /**
  * Creates a new order associated with a user ID.
@@ -1083,12 +1032,13 @@ import type { Order } from '../types/types'; // Import the Order type
  * @returns The newly created order data.
  */
 export async function createOrder(userId: string, ordererName: string): Promise<Order> {
-    // Basic validation
+    // Basic validation (remains unchanged)
     if (!userId || !ordererName || ordererName.trim().length === 0) {
         throw new Error("Validation Error: User ID and a non-empty Orderer Name are required to create an order.");
     }
 
     const trimmedOrdererName = ordererName.trim();
+    const operationContext = "create order";
 
     console.log(`Service: Creating order for user '${userId}' with name '${trimmedOrdererName}'...`);
     const { data, error } = await supabase
@@ -1097,29 +1047,20 @@ export async function createOrder(userId: string, ordererName: string): Promise<
         user_id: userId,
         orderer_name: trimmedOrdererName,
         status: "pending", // Set default status
-        // Add other default fields if necessary
       })
       .select() // Select all fields of the new order defined in the Order type
       .single(); // Expecting one row back
 
-    if (error) {
-      console.error("Service Error (createOrder):", error);
-       if (error.code === '42501') {
-         // Re-throw specific errors for better handling in the API layer
-         throw new Error("Permission Denied: Cannot create order. Check RLS policies.");
-       }
-      // Generic database error
-      throw new Error(`Database Error: Failed to create order: ${error.message}`);
-    }
+    // Use the utility function to handle potential errors
+    handleSupabaseError(error, operationContext); // <-- REPLACED if(error) block
 
+     // If handleSupabaseError didn't throw, check if data was returned (safeguard)
      if (!data) {
       // Safeguard against unexpected null data after successful insert
-      throw new Error("Database Error: Failed to create order: No data returned after insert.");
+      throw new Error(`Database Error: Failed to ${operationContext}: No data returned after insert.`);
      }
 
     console.log("Service: Created order successfully with ID:", data.id);
-    // Cast to ensure the returned object matches the Order interface
-    // Note: Supabase might return fields not explicitly in your type; casting narrows it.
     return data as Order;
 }
 
@@ -1143,7 +1084,7 @@ export interface GuestbookEntry {
   // created_at?: string;
 }
 
-// New Order type (adjust fields based on your actual 'orders' table schema)
+// Existing Order type
 export interface Order {
   id: number; // Or string if you use UUIDs
   user_id: string; // Foreign key to auth.users
@@ -1154,6 +1095,26 @@ export interface Order {
   // e.g., order_details: any;
   // e.g., total_price: number;
 }
+
+// --- ADD THIS INTERFACE DEFINITION ---
+export interface FormSubmitOptions {
+  formElement: HTMLFormElement;
+  statusElement: HTMLElement | null;
+  submitButton: HTMLButtonElement | null;
+  // Function to extract and validate data before sending
+  // Returns null if validation fails and status should not proceed.
+  preparePayload: () => Record<string, any> | null;
+  // Callbacks for custom actions on success/error
+  onSuccess: (data: any, formElement: HTMLFormElement) => void;
+  onError: (error: Error, statusElement: HTMLElement | null) => void;
+  // Optional: Use form's action/method by default if not provided
+  endpoint?: string;
+  method?: string;
+  // Optional: Customize button text during submission
+  submittingText?: string;
+  submitText?: string; // Optional: Text to restore button to (defaults to initial text)
+}
+// --- END OF ADDED INTERFACE ---
 ```
 ---
 
@@ -1286,5 +1247,249 @@ export const TURNSTILE_VERIFY_ENDPOINT = 'https://challenges.cloudflare.com/turn
 // export const PROTECTED_PATHS = ["/dashboard"];
 // export const REDIRECT_PATHS = ["/signin"];
 // export const PROTECTED_API_PATHS = ["/api/guestbook", "/api/orders/create"];
+```
+---
+
+`src/utils/formHandler.ts`:
+```
+// src/utils/formHandler.ts
+import type { FormSubmitOptions } from '../types/types';
+
+export async function submitFormData(options: FormSubmitOptions): Promise<void> {
+  const {
+    formElement, // Needed for reset on success
+    statusElement,
+    submitButton,
+    preparePayload,
+    onSuccess,
+    onError,
+    endpoint = formElement.action,
+    method = formElement.method || 'POST',
+    submittingText = 'Submitting...',
+    submitText = submitButton?.dataset.originalText || 'Submit', // Use data attribute or default
+  } = options;
+
+  // Store original text if not already done
+  if (submitButton && !submitButton.dataset.originalText) {
+      submitButton.dataset.originalText = submitButton.textContent || 'Submit';
+  }
+  const originalButtonText = submitButton?.dataset.originalText || 'Submit';
+
+  // Clear previous status
+  if (statusElement) {
+    statusElement.textContent = '';
+    statusElement.style.color = 'inherit';
+  }
+
+  // Prepare payload - validation happens here
+  const payload = preparePayload();
+  if (payload === null) {
+    // Validation failed, message should be handled by preparePayload/onError caller
+    // Ensure button is re-enabled if it was disabled before this check
+     if (submitButton && submitButton.disabled) {
+        submitButton.disabled = false;
+        submitButton.textContent = originalButtonText;
+     }
+    return; // Exit early
+  }
+
+  // Manage UI state: Disable button
+  if (submitButton) {
+    submitButton.disabled = true;
+    submitButton.textContent = submittingText;
+  }
+
+  try {
+    const response = await fetch(endpoint, {
+      method: method.toUpperCase(),
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    let data;
+    try {
+      // Attempt to parse JSON, works even for errors if body is JSON
+      data = await response.json();
+    } catch (jsonError) {
+      // Handle cases where response is not JSON (e.g., 500 HTML error page)
+      if (!response.ok) {
+        // Throw generic HTTP error if parsing failed on an error response
+        throw new Error(`HTTP error! Status: ${response.status}, Response not JSON.`);
+      }
+      // If response was ok but not JSON, might be unexpected. Log and treat as success with no data.
+      console.warn("Response was OK but not valid JSON.");
+      data = null; // Success, but no data parsed
+    }
+
+    if (!response.ok) {
+      // Use error message from parsed JSON body if available, otherwise default
+      const errorMessage = data?.error || `HTTP error! Status: ${response.status}`;
+      throw new Error(errorMessage);
+    }
+
+    // Call the success callback
+    onSuccess(data, formElement);
+
+  } catch (error: any) {
+    console.error('Form submission error:', error);
+    // Call the error callback
+    onError(error, statusElement);
+    // Note: error is not re-thrown here, allowing the flow to complete in finally.
+    // The onError callback is responsible for user feedback.
+
+  } finally {
+    // Re-enable button and restore text in finally block to ensure it always happens
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent = originalButtonText;
+    }
+  }
+}
+
+/**
+ * Sets up a standard event listener for form submission that calls submitFormData.
+ * Use this for simple forms without pre-submission steps like auth checks.
+ * @param options - Configuration for the form submission.
+ */
+export function setupFormSubmitListener(options: FormSubmitOptions): void {
+   const { formElement } = options;
+   if (!formElement) {
+       console.error('Form submission listener requires a formElement.');
+       return;
+   }
+
+   formElement.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        // Directly call the async submission logic
+        await submitFormData(options);
+   });
+}
+
+/**
+ * Helper function to reset a Cloudflare Turnstile widget within a given form.
+ * @param formElement - The form containing the Turnstile widget.
+ */
+export function resetTurnstileWidget(formElement: HTMLFormElement | null): void {
+    if (!formElement) return;
+    try {
+        // Find the widget using its class
+        const widgetElement = formElement.querySelector<HTMLElement>('.cf-turnstile');
+        if (widgetElement && typeof (window as any).turnstile?.reset === 'function') {
+           (window as any).turnstile.reset(widgetElement);
+           console.log("Turnstile widget reset.");
+        }
+    } catch (e) {
+        console.warn("Could not reset Turnstile widget", e);
+    }
+}
+```
+---
+
+`src/utils/supabaseUtils.ts`:
+```
+// src/utils/supabaseUtils.ts
+import type { PostgrestError } from '@supabase/supabase-js';
+
+/**
+ * Handles common Supabase Postgrest errors, logs them, and throws standardized Error objects.
+ *
+ * @param error - The PostgrestError object returned from a Supabase query, or null/undefined if no error occurred.
+ * @param context - A string describing the operation context (e.g., "fetch guestbook entries", "create order") for clearer error messages.
+ * @throws {Error} Throws a standardized error ('Permission Denied', 'Database Error') if the input `error` is not null/undefined.
+ */
+export function handleSupabaseError(error: PostgrestError | null | undefined, context: string): void {
+  if (!error) {
+    // No error occurred, do nothing.
+    return;
+  }
+
+  // Log the original error for debugging purposes
+  console.error(`Service Error (${context}):`, error);
+
+  // Handle specific, known error codes
+  if (error.code === '42501') { // RLS violation
+    throw new Error(`Permission Denied: Cannot ${context}. Check RLS policies.`);
+  }
+
+  // Handle other database-related errors generically
+  // Add more specific error code checks here if needed in the future
+  // e.g., if (error.code === '23505') { throw new Error(`Database Error: Unique constraint violation during ${context}.`); }
+
+  // Fallback for any other database error
+  throw new Error(`Database Error: Failed to ${context}: ${error.message}`);
+}
+```
+---
+
+`src/utils/turnstile.ts`:
+```
+// src/utils/turnstile.ts
+import { TURNSTILE_VERIFY_ENDPOINT } from './constants'; // Assuming you move the constant here
+import { jsonErrorResponse } from './apiResponse'; // Or just throw errors
+
+const TURNSTILE_SECRET_KEY = import.meta.env.TURNSTILE_SECRET_KEY;
+
+/**
+ * Verifies a Cloudflare Turnstile token.
+ * Throws an error if verification fails or if the server is misconfigured.
+ *
+ * @param token - The `cf-turnstile-response` token from the client.
+ * @param remoteIp - The client's IP address (optional but recommended).
+ * @throws {Error} If the secret key is missing, the fetch fails, or verification is unsuccessful.
+ */
+export async function verifyTurnstileToken(token: string, remoteIp?: string): Promise<void> {
+    if (!TURNSTILE_SECRET_KEY) {
+        console.error("Turnstile Verification Error: TURNSTILE_SECRET_KEY is not set.");
+        // Throw an error that the API route can catch and translate to a 500
+        throw new Error("Server configuration error: CAPTCHA secret missing.");
+    }
+
+    if (!token) {
+         throw new Error("CAPTCHA token is missing."); // Or handle this validation earlier
+    }
+
+    console.log("Util: Verifying Turnstile token...");
+    const verifyPayload = new URLSearchParams();
+    verifyPayload.append('secret', TURNSTILE_SECRET_KEY);
+    verifyPayload.append('response', token);
+
+    if (remoteIp) {
+        verifyPayload.append('remoteip', remoteIp);
+        console.log("Util: Verifying Turnstile with remoteip:", remoteIp);
+    } else {
+        console.warn("Util: Verifying Turnstile without remoteip.");
+    }
+
+    try {
+        const verifyResponse = await fetch(TURNSTILE_VERIFY_ENDPOINT, {
+            method: 'POST',
+            body: verifyPayload,
+        });
+
+        if (!verifyResponse.ok) {
+             // Handle non-2xx responses from Cloudflare endpoint
+             throw new Error(`Turnstile endpoint returned status ${verifyResponse.status}`);
+        }
+
+        const verifyOutcome = await verifyResponse.json();
+        console.log("Util: Turnstile verification outcome:", verifyOutcome);
+
+        if (!verifyOutcome.success) {
+            // Throw a specific error that the API route can catch
+            throw new Error(`Verification failed. Codes: ${(verifyOutcome['error-codes'] || []).join(', ')}`);
+        }
+
+        console.log("Util: Turnstile verification successful for hostname:", verifyOutcome.hostname);
+        // If successful, the function completes without returning anything (void)
+
+    } catch (error: any) {
+        console.error("Util Error: Exception during Turnstile verification fetch:", error);
+        // Re-throw or throw a new standardized error
+        throw new Error(`Server error during CAPTCHA verification: ${error.message}`);
+    }
+}
 ```
 ---

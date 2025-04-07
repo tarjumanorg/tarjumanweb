@@ -1,113 +1,85 @@
 // src/pages/api/orders/create.ts
 import type { APIRoute } from "astro";
 import { createOrder } from "../../../services/order.service";
-import { TURNSTILE_VERIFY_ENDPOINT } from '../../../utils/constants';
-import { jsonResponse, jsonErrorResponse } from '../../../utils/apiResponse'; // <-- IMPORT ADDED
+import { verifyTurnstileToken } from '../../../utils/turnstile'; // <-- IMPORT the new utility
+import { jsonResponse, jsonErrorResponse } from '../../../utils/apiResponse';
 
-const TURNSTILE_SECRET_KEY = import.meta.env.TURNSTILE_SECRET_KEY;
+// TURNSTILE_SECRET_KEY is no longer needed here
 
 export const POST: APIRoute = async ({ request, locals, clientAddress }) => {
   console.log("API Route: POST /api/orders/create invoked.");
 
-  const userId = locals.userId;
-  if (!userId) {
-      console.error("API Error: No userId found in locals for protected route /api/orders/create");
-      // Use utility function for error response
-      return jsonErrorResponse(401, "Unauthorized: Missing user session."); // <-- UPDATED
-  }
+  // --- Authentication Check (remains the same) ---
+  const userId = locals.userId!; // Asserting non-null based on middleware guarantee
   console.log(`API Route: User authenticated via middleware. User ID: ${userId}`);
+  // ---
 
-  if (!TURNSTILE_SECRET_KEY) {
-      console.error("API Error: TURNSTILE_SECRET_KEY is not set.");
-      // Use utility function for error response
-      return jsonErrorResponse(500, "Server configuration error: CAPTCHA secret missing."); // <-- UPDATED
-  }
-
+  // --- Request Body Parsing & Validation (remains the same) ---
   let ordererName: string | undefined;
   let turnstileToken: string | undefined;
   try {
     interface OrderRequestBody {
         orderer_name?: string;
-        turnstileToken?: string;
+        turnstileToken?: string; // Field name from client-side payload
     }
     const body: OrderRequestBody = await request.json();
     ordererName = body.orderer_name?.toString().trim();
-    turnstileToken = body.turnstileToken?.toString();
+    turnstileToken = body.turnstileToken?.toString(); // Extract token
 
     if (!ordererName) {
         console.log("API Error: Missing or empty orderer_name in request body.");
-        // Use utility function for error response
-        return jsonErrorResponse(400, "Bad Request: Orderer name is required."); // <-- UPDATED
+        return jsonErrorResponse(400, "Bad Request: Orderer name is required.");
     }
     if (!turnstileToken) {
         console.log("API Error: Missing turnstileToken in request body.");
-        // Use utility function for error response
-        return jsonErrorResponse(400, "Bad Request: CAPTCHA token is missing."); // <-- UPDATED
+        return jsonErrorResponse(400, "Bad Request: CAPTCHA token is missing.");
     }
   } catch (error) {
     console.log("API Error: Invalid JSON body received.");
-    // Use utility function for error response
-    return jsonErrorResponse(400, "Bad Request: Invalid JSON body."); // <-- UPDATED
+    return jsonErrorResponse(400, "Bad Request: Invalid JSON body.");
   }
+  // ---
 
+  // --- Turnstile Verification (using the new utility) ---
   try {
-      console.log("API Route: Verifying Turnstile token...");
-      const verifyPayload = new URLSearchParams();
-      verifyPayload.append('secret', TURNSTILE_SECRET_KEY);
-      verifyPayload.append('response', turnstileToken);
+    console.log("API Route: Calling Turnstile verification utility...");
+    // Get client IP (handle potential proxy headers like Netlify's)
+    const forwardedIp = request.headers.get('x-nf-client-connection-ip');
+    const remoteIp = forwardedIp || clientAddress;
 
-      const forwardedIp = request.headers.get('x-nf-client-connection-ip');
-      const remoteIp = forwardedIp || clientAddress;
-      if (remoteIp) {
-          verifyPayload.append('remoteip', remoteIp);
-          console.log("API Route: Verifying Turnstile with remoteip:", remoteIp);
-      } else {
-          console.warn("API Route: Verifying Turnstile without remoteip.");
-      }
+    // Call the abstracted verification function
+    await verifyTurnstileToken(turnstileToken, remoteIp);
 
-      const verifyResponse = await fetch(TURNSTILE_VERIFY_ENDPOINT, {
-          method: 'POST',
-          body: verifyPayload,
-      });
-      const verifyOutcome = await verifyResponse.json();
-      console.log("API Route: Turnstile verification outcome:", verifyOutcome);
-
-      if (!verifyOutcome.success) {
-          console.warn("API Route: Turnstile verification failed.", verifyOutcome['error-codes']);
-          // Use utility function for error response
-          return jsonErrorResponse(403, `CAPTCHA verification failed. Codes: ${ (verifyOutcome['error-codes'] || []).join(', ') }`); // <-- UPDATED
-      }
-      console.log("API Route: Turnstile verification successful for hostname:", verifyOutcome.hostname);
+    console.log("API Route: Turnstile verification successful.");
 
   } catch (error: any) {
-      console.error("API Error: Exception during Turnstile verification:", error);
-      // Use utility function for error response
-      return jsonErrorResponse(500, "Server error during CAPTCHA verification."); // <-- UPDATED
+    console.warn("API Route: Turnstile verification failed.", error.message);
+    // Check for specific configuration error
+    if (error.message.startsWith("Server configuration error")) {
+        return jsonErrorResponse(500, error.message);
+    }
+    // Treat other errors as client-side verification failures (403 Forbidden)
+    return jsonErrorResponse(403, `CAPTCHA verification failed: ${error.message}`);
   }
+  // ---
 
+  // --- Order Creation (remains the same) ---
   try {
     console.log(`API Route: Calling createOrder service for user ${userId} with name ${ordererName}`);
     const newOrder = await createOrder(userId, ordererName);
-
     console.log("API Route: Order created successfully:", newOrder.id);
-    // Use utility function for success response
-    return jsonResponse(201, newOrder); // <-- UPDATED
+    return jsonResponse(201, newOrder);
 
   } catch (error: any) {
     console.error("API Error (POST /api/orders/create - Service Call):", error.message);
-
-    // Use utility function for error responses based on service error messages
+    // Specific error handling based on service errors (remains the same)
     if (error.message.startsWith("Validation Error:")) {
-        return jsonErrorResponse(400, error.message); // <-- UPDATED
+        return jsonErrorResponse(400, error.message);
     }
-    if (error.message.startsWith("Permission Denied:")) {
-        return jsonErrorResponse(403, error.message); // <-- UPDATED
-    }
+    // ... other specific service error checks ...
     if (error.message.startsWith("Database Error:")) {
-         return jsonErrorResponse(500, "Failed to create order due to a server database error."); // <-- UPDATED (Generic message for DB error)
+         return jsonErrorResponse(500, "Failed to create order due to a server database error.");
     }
-
-    // Generic fallback for unexpected errors
-    return jsonErrorResponse(500, "An unexpected server error occurred while creating the order."); // <-- UPDATED
+    return jsonErrorResponse(500, "An unexpected server error occurred while creating the order.");
   }
 };

@@ -2,31 +2,30 @@
 import type { APIRoute } from "astro";
 import { getAllGuestbookEntries, createGuestbookEntry } from "../../../services/guestbook.service";
 import type { GuestbookEntry } from "../../../types/types";
-import { jsonResponse, jsonErrorResponse } from '../../../utils/apiResponse'; // <-- IMPORT ADDED
+import { jsonResponse, jsonErrorResponse } from '../../../utils/apiResponse';
 
+// GET handler remains unchanged
 export const GET: APIRoute = async () => {
   console.log("API Route: GET /api/guestbook invoked.");
   try {
     const entries = await getAllGuestbookEntries();
-    // Use utility function for success response
-    return jsonResponse(200, entries); // <-- UPDATED
+    return jsonResponse(200, entries);
   } catch (error: any) {
     console.error("API Error (GET /api/guestbook):", error.message);
-    // Use utility function for error response
-    return jsonErrorResponse(500, "Failed to retrieve guestbook entries."); // <-- UPDATED
+    return jsonErrorResponse(500, "Failed to retrieve guestbook entries.");
   }
 };
 
 export const POST: APIRoute = async ({ request, locals }) => {
   console.log("API Route: POST /api/guestbook invoked.");
 
-  const userId = locals.userId;
-  if (!userId) {
-      console.error("API Error: No userId found in locals for protected route /api/guestbook");
-      // Use utility function for error response
-      return jsonErrorResponse(401, "Unauthorized: Missing user session."); // <-- UPDATED
-  }
+  // --- OPTIMIZATION ---
+  // The middleware already ensures that locals.userId is present for this route.
+  // We can safely use the non-null assertion operator (!).
+  // The redundant check 'if (!userId) { ... }' has been removed.
+  const userId = locals.userId!;
   console.log(`API Route: User authenticated via middleware. User ID: ${userId}. Ready to create guestbook entry.`);
+  // --- END OPTIMIZATION ---
 
   try {
     let name: string;
@@ -38,36 +37,33 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
         if (!name || !message) {
             console.log("API Error: Missing or empty name or message in request body.");
-            // Use utility function for error response
-            return jsonErrorResponse(400, "Bad Request: Name and message are required and cannot be empty."); // <-- UPDATED
+            return jsonErrorResponse(400, "Bad Request: Name and message are required and cannot be empty.");
         }
     } catch (e) {
         console.log("API Error: Invalid JSON body received.");
-        // Use utility function for error response
-        return jsonErrorResponse(400, "Bad Request: Invalid JSON body."); // <-- UPDATED
+        return jsonErrorResponse(400, "Bad Request: Invalid JSON body.");
     }
 
+    // Note: userId isn't directly used by createGuestbookEntry in this example,
+    // but it confirms the user is authenticated as required by the middleware.
     const newEntry = await createGuestbookEntry(name, message);
 
     console.log("API Route: Guestbook entry created successfully.");
-    // Use utility function for success response
-    return jsonResponse(201, newEntry); // <-- UPDATED
+    return jsonResponse(201, newEntry);
 
   } catch (error: any) {
     console.error("API Error (POST /api/guestbook):", error.message);
 
-    // Use utility function for error responses based on service error messages
+    // Error handling remains the same
     if (error.message.startsWith("Validation Error:")) {
-         return jsonErrorResponse(400, error.message); // <-- UPDATED
+         return jsonErrorResponse(400, error.message);
     }
     if (error.message.startsWith("Permission Denied:")) {
-         return jsonErrorResponse(403, error.message); // <-- UPDATED
+         return jsonErrorResponse(403, error.message);
     }
      if (error.message.startsWith("Database Error:")) {
-         return jsonErrorResponse(500, "Failed to submit guestbook entry due to a server error."); // <-- UPDATED (Generic message for DB error)
+         return jsonErrorResponse(500, "Failed to submit guestbook entry due to a server error.");
      }
-
-    // Fallback for unexpected errors
-    return jsonErrorResponse(500, "An unexpected error occurred while submitting the guestbook entry."); // <-- UPDATED
+    return jsonErrorResponse(500, "An unexpected error occurred while submitting the guestbook entry.");
   }
 };

@@ -1,11 +1,7 @@
 ---
 // src/components/Reviews.astro
 import type { GuestbookEntry } from "../types/types";
-
-interface Props {
-  reviews: GuestbookEntry[];
-}
-
+interface Props { reviews: GuestbookEntry[]; }
 const { reviews } = Astro.props;
 ---
 
@@ -15,44 +11,36 @@ const { reviews } = Astro.props;
     method="post"
     action="/api/guestbook"
   >
-    <h3 >Leave a message</h3>
+    <h3>Leave a message</h3>
+    {/* Added min-height and margin for better layout */}
+    <div id="form-status" aria-live="polite" style="min-height: 1.5em; margin-bottom: 1em; font-weight: bold;"></div>
 
-
-    <div id="form-status"></div>
-
-    <div >
-      <label
-        for="name"
-      >
-        Name
-      </label>
+    <div>
+      <label for="name">Name</label>
       <input
         id="name"
         type="text"
         placeholder="Your Name"
         required
         name="name"
-            />
+      />
     </div>
-    <div >
-      <label
-        for="message"
-              >
-        Message
-      </label>
-
+    <div>
+      <label for="message">Message</label>
       <input
         id="message"
         type="text"
         placeholder="A friendly message..."
         required
         name="message"
-           />
+      />
     </div>
+    {/* Added data-original-text attribute for handler */}
     <button
       id="submit-button"
       type="submit"
-        >
+      data-original-text="Submit"
+    >
       Submit
     </button>
   </form>
@@ -63,11 +51,7 @@ const { reviews } = Astro.props;
         <ul>
         {reviews.map((review) => (
             <li>
-            <p>
-              
-                {review.name}
-
-            </p>
+            <p><strong>{review.name}</strong></p> {/* Made name bold */}
             <p>{review.message}</p>
             </li>
         ))}
@@ -79,54 +63,72 @@ const { reviews } = Astro.props;
 </div>
 
 <script>
-  const form = document.getElementById('guestbook-form') as HTMLFormElement;
-  const nameInput = document.getElementById('name') as HTMLInputElement;
-  const messageInput = document.getElementById('message') as HTMLInputElement;
-  const statusDiv = document.getElementById('form-status');
-  const submitButton = document.getElementById('submit-button') as HTMLButtonElement;
+  // Import the simplified setup function and types
+  import { setupFormSubmitListener } from '../utils/formHandler';
+  import type { FormSubmitOptions } from '../types/types'; // <-- CHANGE THIS LINE'S PATH
+
+  const form = document.getElementById('guestbook-form') as HTMLFormElement | null;
+  const nameInput = document.getElementById('name') as HTMLInputElement | null;
+  const messageInput = document.getElementById('message') as HTMLInputElement | null;
+  const statusDiv = document.getElementById('form-status') as HTMLElement | null;
+  const submitButton = document.getElementById('submit-button') as HTMLButtonElement | null;
 
   if (form && nameInput && messageInput && statusDiv && submitButton) {
-    form.addEventListener('submit', async (event) => {
-      event.preventDefault();
 
-      statusDiv.textContent = '';
-      submitButton.disabled = true;
-      submitButton.textContent = 'Submitting...';
+    const preparePayloadForReview = (): Record<string, any> | null => {
+      const name = nameInput.value.trim();
+      const message = messageInput.value.trim();
 
-      const name = nameInput.value;
-      const message = messageInput.value;
-
-      const payload = JSON.stringify({ name, message });
-
-      try {
-        const response = await fetch(form.action, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-          },
-          body: payload,
-        });
-
-
-        const data = await response.json(); 
-
-        if (!response.ok) {
-          throw new Error(data.error || `HTTP error! Status: ${response.status}`);
+      if (!name || !message) {
+        if (statusDiv) {
+          statusDiv.textContent = 'Please enter both name and message.';
+          statusDiv.style.color = 'red';
         }
-
-        statusDiv.textContent = 'Message submitted successfully!';
-        form.reset();
-
-      } catch (error: any) {
-        console.error('Submission error:', error);
-        statusDiv.textContent = `Error: ${error.message || 'Could not submit message.'}`;
-
-      } finally {
-        submitButton.disabled = false;
-        submitButton.textContent = 'Submit';
+        // Return null to signal validation failure
+        return null;
       }
-    });
+      // Return payload if valid
+      return { name, message };
+    };
+
+    const onReviewSuccess = (data: any, formElement: HTMLFormElement) => {
+      if (statusDiv) {
+        statusDiv.textContent = 'Message submitted successfully!';
+        statusDiv.style.color = 'green';
+      }
+      formElement.reset();
+      // IMPORTANT: This simple example doesn't dynamically update the list above.
+      // A page refresh would be needed to see the new entry, or use
+      // more advanced techniques (HTMX, Alpine, framework component).
+      console.log("Submitted data:", data);
+      // Optional: Clear success message after a delay
+      setTimeout(() => { if(statusDiv) statusDiv.textContent = ''; }, 5000);
+    };
+
+    const onReviewError = (error: Error, statusElement: HTMLElement | null) => {
+       if (statusElement) {
+         statusElement.textContent = `Error: ${error.message || 'Could not submit message.'}`;
+         statusElement.style.color = 'red';
+       }
+       // Optional: Clear error message after a delay
+       // setTimeout(() => { if(statusDiv) statusDiv.textContent = ''; }, 8000);
+    };
+
+    // Define options for the handler
+    const options: FormSubmitOptions = {
+      formElement: form,
+      statusElement: statusDiv,
+      submitButton: submitButton,
+      preparePayload: preparePayloadForReview,
+      onSuccess: onReviewSuccess,
+      onError: onReviewError,
+      // endpoint and method will be taken from the form's action and method attributes
+      submitText: "Submit" // Explicitly set restore text if needed
+    };
+
+    // Use the setup function for simple forms
+    setupFormSubmitListener(options);
+
   } else {
     console.error('Could not find all required form elements for guestbook submission script.');
   }

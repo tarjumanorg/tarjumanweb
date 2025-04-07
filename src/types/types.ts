@@ -9,7 +9,7 @@ export interface GuestbookEntry {
   // created_at?: string;
 }
 
-// New Order type (adjust fields based on your actual 'orders' table schema)
+// Existing Order type
 export interface Order {
   id: number; // Or string if you use UUIDs
   user_id: string; // Foreign key to auth.users
@@ -20,3 +20,23 @@ export interface Order {
   // e.g., order_details: any;
   // e.g., total_price: number;
 }
+
+// --- ADD THIS INTERFACE DEFINITION ---
+export interface FormSubmitOptions {
+  formElement: HTMLFormElement;
+  statusElement: HTMLElement | null;
+  submitButton: HTMLButtonElement | null;
+  // Function to extract and validate data before sending
+  // Returns null if validation fails and status should not proceed.
+  preparePayload: () => Record<string, any> | null;
+  // Callbacks for custom actions on success/error
+  onSuccess: (data: any, formElement: HTMLFormElement) => void;
+  onError: (error: Error, statusElement: HTMLElement | null) => void;
+  // Optional: Use form's action/method by default if not provided
+  endpoint?: string;
+  method?: string;
+  // Optional: Customize button text during submission
+  submittingText?: string;
+  submitText?: string; // Optional: Text to restore button to (defaults to initial text)
+}
+// --- END OF ADDED INTERFACE ---
