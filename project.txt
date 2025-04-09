@@ -43,19 +43,22 @@ declare namespace App {
 ---
 // src/components/Reviews.astro
 import type { GuestbookEntry } from "../types/types";
-interface Props { reviews: GuestbookEntry[]; }
+interface Props {
+  reviews: GuestbookEntry[];
+}
 const { reviews } = Astro.props;
 ---
 
 <div>
-  <form
-    id="guestbook-form"
-    method="post"
-    action="/api/guestbook"
-  >
+  <form id="guestbook-form" method="post" action="/api/guestbook">
     <h3>Leave a message</h3>
     {/* Added min-height and margin for better layout */}
-    <div id="form-status" aria-live="polite" style="min-height: 1.5em; margin-bottom: 1em; font-weight: bold;"></div>
+    <div
+      id="form-status"
+      aria-live="polite"
+      style="min-height: 1.5em; margin-bottom: 1em; font-weight: bold;"
+    >
+    </div>
 
     <div>
       <label for="name">Name</label>
@@ -78,65 +81,70 @@ const { reviews } = Astro.props;
       />
     </div>
     {/* Added data-original-text attribute for handler */}
-    <button
-      id="submit-button"
-      type="submit"
-      data-original-text="Submit"
-    >
+    <button id="submit-button" type="submit" data-original-text="Submit">
       Submit
     </button>
   </form>
 
   <h3>Guestbook Entries</h3>
-   <div id="reviews-list">
-    {reviews.length > 0 ? (
+  <div id="reviews-list">
+    {
+      reviews.length > 0 ? (
         <ul>
-        {reviews.map((review) => (
+          {reviews.map((review) => (
             <li>
-            <p><strong>{review.name}</strong></p> {/* Made name bold */}
-            <p>{review.message}</p>
+              <p>
+                <strong>{review.name}</strong>
+              </p>{" "}
+              {/* Made name bold */}
+              <p>{review.message}</p>
             </li>
-        ))}
+          ))}
         </ul>
-    ) : (
+      ) : (
         <p>No reviews yet. Be the first!</p>
-    )}
-   </div>
+      )
+    }
+  </div>
 </div>
 
 <script>
-  // Import the simplified setup function and types
-  import { setupFormSubmitListener } from '../utils/formHandler';
-  import type { FormSubmitOptions } from '../types/types'; // <-- CHANGE THIS LINE'S PATH
+  import { setupFormSubmitListener } from "../scripts/formHandler";
+  import type { FormSubmitOptions } from "../types/types";
 
-  const form = document.getElementById('guestbook-form') as HTMLFormElement | null;
-  const nameInput = document.getElementById('name') as HTMLInputElement | null;
-  const messageInput = document.getElementById('message') as HTMLInputElement | null;
-  const statusDiv = document.getElementById('form-status') as HTMLElement | null;
-  const submitButton = document.getElementById('submit-button') as HTMLButtonElement | null;
+  const form = document.getElementById(
+    "guestbook-form",
+  ) as HTMLFormElement | null;
+  const nameInput = document.getElementById("name") as HTMLInputElement | null;
+  const messageInput = document.getElementById(
+    "message",
+  ) as HTMLInputElement | null;
+  const statusDiv = document.getElementById(
+    "form-status",
+  ) as HTMLElement | null;
+  const submitButton = document.getElementById(
+    "submit-button",
+  ) as HTMLButtonElement | null;
 
   if (form && nameInput && messageInput && statusDiv && submitButton) {
-
     const preparePayloadForReview = (): Record<string, any> | null => {
       const name = nameInput.value.trim();
       const message = messageInput.value.trim();
 
       if (!name || !message) {
         if (statusDiv) {
-          statusDiv.textContent = 'Please enter both name and message.';
-          statusDiv.style.color = 'red';
+          statusDiv.textContent = "Please enter both name and message.";
+          statusDiv.style.color = "red";
         }
-        // Return null to signal validation failure
         return null;
       }
-      // Return payload if valid
       return { name, message };
     };
 
     const onReviewSuccess = (data: any, formElement: HTMLFormElement) => {
       if (statusDiv) {
-        statusDiv.textContent = 'Message submitted successfully!';
-        statusDiv.style.color = 'green';
+        statusDiv.textContent = "Message submitted successfully!";
+        statusDiv.style.color = "green";
       }
       formElement.reset();
       // IMPORTANT: This simple example doesn't dynamically update the list above.
@@ -144,16 +152,18 @@ const { reviews } = Astro.props;
       // more advanced techniques (HTMX, Alpine, framework component).
       console.log("Submitted data:", data);
       // Optional: Clear success message after a delay
-      setTimeout(() => { if(statusDiv) statusDiv.textContent = ''; }, 5000);
+      setTimeout(() => {
+        if (statusDiv) statusDiv.textContent = "";
+      }, 5000);
     };
 
     const onReviewError = (error: Error, statusElement: HTMLElement | null) => {
-       if (statusElement) {
-         statusElement.textContent = `Error: ${error.message || 'Could not submit message.'}`;
-         statusElement.style.color = 'red';
-       }
-       // Optional: Clear error message after a delay
-       // setTimeout(() => { if(statusDiv) statusDiv.textContent = ''; }, 8000);
+      if (statusElement) {
+        statusElement.textContent = `Error: ${error.message || "Could not submit message."}`;
+        statusElement.style.color = "red";
+      }
+      // Optional: Clear error message after a delay
+      // setTimeout(() => { if(statusDiv) statusDiv.textContent = ''; }, 8000);
     };
 
     // Define options for the handler
@@ -165,16 +175,18 @@ const { reviews } = Astro.props;
       onSuccess: onReviewSuccess,
       onError: onReviewError,
       // endpoint and method will be taken from the form's action and method attributes
-      submitText: "Submit" // Explicitly set restore text if needed
+      submitText: "Submit", // Explicitly set restore text if needed
     };
 
     // Use the setup function for simple forms
     setupFormSubmitListener(options);
-
   } else {
-    console.error('Could not find all required form elements for guestbook submission script.');
+    console.error(
+      "Could not find all required form elements for guestbook submission script.",
+    );
   }
 </script>
+
 ```
 ---
 
@@ -949,6 +961,144 @@ export const POST: APIRoute = async ({ request, locals, clientAddress }) => {
 ```
 ---
 
+`src/scripts/formHandler.ts`:
+```
+// src/utils/formHandler.ts
+import type { FormSubmitOptions } from '../types/types';
+
+export async function submitFormData(options: FormSubmitOptions): Promise<void> {
+  const {
+    formElement, // Needed for reset on success
+    statusElement,
+    submitButton,
+    preparePayload,
+    onSuccess,
+    onError,
+    endpoint = formElement.action,
+    method = formElement.method || 'POST',
+    submittingText = 'Submitting...',
+    submitText = submitButton?.dataset.originalText || 'Submit', // Use data attribute or default
+  } = options;
+
+  // Store original text if not already done
+  if (submitButton && !submitButton.dataset.originalText) {
+      submitButton.dataset.originalText = submitButton.textContent || 'Submit';
+  }
+  const originalButtonText = submitButton?.dataset.originalText || 'Submit';
+
+  // Clear previous status
+  if (statusElement) {
+    statusElement.textContent = '';
+    statusElement.style.color = 'inherit';
+  }
+
+  // Prepare payload - validation happens here
+  const payload = preparePayload();
+  if (payload === null) {
+    // Validation failed, message should be handled by preparePayload/onError caller
+    // Ensure button is re-enabled if it was disabled before this check
+     if (submitButton && submitButton.disabled) {
+        submitButton.disabled = false;
+        submitButton.textContent = originalButtonText;
+     }
+    return; // Exit early
+  }
+
+  // Manage UI state: Disable button
+  if (submitButton) {
+    submitButton.disabled = true;
+    submitButton.textContent = submittingText;
+  }
+
+  try {
+    const response = await fetch(endpoint, {
+      method: method.toUpperCase(),
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    let data;
+    try {
+      // Attempt to parse JSON, works even for errors if body is JSON
+      data = await response.json();
+    } catch (jsonError) {
+      // Handle cases where response is not JSON (e.g., 500 HTML error page)
+      if (!response.ok) {
+        // Throw generic HTTP error if parsing failed on an error response
+        throw new Error(`HTTP error! Status: ${response.status}, Response not JSON.`);
+      }
+      // If response was ok but not JSON, might be unexpected. Log and treat as success with no data.
+      console.warn("Response was OK but not valid JSON.");
+      data = null; // Success, but no data parsed
+    }
+
+    if (!response.ok) {
+      // Use error message from parsed JSON body if available, otherwise default
+      const errorMessage = data?.error || `HTTP error! Status: ${response.status}`;
+      throw new Error(errorMessage);
+    }
+
+    // Call the success callback
+    onSuccess(data, formElement);
+
+  } catch (error: any) {
+    console.error('Form submission error:', error);
+    // Call the error callback
+    onError(error, statusElement);
+    // Note: error is not re-thrown here, allowing the flow to complete in finally.
+    // The onError callback is responsible for user feedback.
+
+  } finally {
+    // Re-enable button and restore text in finally block to ensure it always happens
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent = originalButtonText;
+    }
+  }
+}
+
+/**
+ * Sets up a standard event listener for form submission that calls submitFormData.
+ * Use this for simple forms without pre-submission steps like auth checks.
+ * @param options - Configuration for the form submission.
+ */
+export function setupFormSubmitListener(options: FormSubmitOptions): void {
+   const { formElement } = options;
+   if (!formElement) {
+       console.error('Form submission listener requires a formElement.');
+       return;
+   }
+
+   formElement.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        // Directly call the async submission logic
+        await submitFormData(options);
+   });
+}
+
+/**
+ * Helper function to reset a Cloudflare Turnstile widget within a given form.
+ * @param formElement - The form containing the Turnstile widget.
+ */
+export function resetTurnstileWidget(formElement: HTMLFormElement | null): void {
+    if (!formElement) return;
+    try {
+        // Find the widget using its class
+        const widgetElement = formElement.querySelector<HTMLElement>('.cf-turnstile');
+        if (widgetElement && typeof (window as any).turnstile?.reset === 'function') {
+           (window as any).turnstile.reset(widgetElement);
+           console.log("Turnstile widget reset.");
+        }
+    } catch (e) {
+        console.warn("Could not reset Turnstile widget", e);
+    }
+}
+```
+---
+
 `src/services/guestbook.service.ts`:
 ```
 // src/services/guestbook.service.ts
@@ -1247,144 +1397,6 @@ export const TURNSTILE_VERIFY_ENDPOINT = 'https://challenges.cloudflare.com/turn
 // export const PROTECTED_PATHS = ["/dashboard"];
 // export const REDIRECT_PATHS = ["/signin"];
 // export const PROTECTED_API_PATHS = ["/api/guestbook", "/api/orders/create"];
-```
----
-
-`src/utils/formHandler.ts`:
-```
-// src/utils/formHandler.ts
-import type { FormSubmitOptions } from '../types/types';
-
-export async function submitFormData(options: FormSubmitOptions): Promise<void> {
-  const {
-    formElement, // Needed for reset on success
-    statusElement,
-    submitButton,
-    preparePayload,
-    onSuccess,
-    onError,
-    endpoint = formElement.action,
-    method = formElement.method || 'POST',
-    submittingText = 'Submitting...',
-    submitText = submitButton?.dataset.originalText || 'Submit', // Use data attribute or default
-  } = options;
-
-  // Store original text if not already done
-  if (submitButton && !submitButton.dataset.originalText) {
-      submitButton.dataset.originalText = submitButton.textContent || 'Submit';
-  }
-  const originalButtonText = submitButton?.dataset.originalText || 'Submit';
-
-  // Clear previous status
-  if (statusElement) {
-    statusElement.textContent = '';
-    statusElement.style.color = 'inherit';
-  }
-
-  // Prepare payload - validation happens here
-  const payload = preparePayload();
-  if (payload === null) {
-    // Validation failed, message should be handled by preparePayload/onError caller
-    // Ensure button is re-enabled if it was disabled before this check
-     if (submitButton && submitButton.disabled) {
-        submitButton.disabled = false;
-        submitButton.textContent = originalButtonText;
-     }
-    return; // Exit early
-  }
-
-  // Manage UI state: Disable button
-  if (submitButton) {
-    submitButton.disabled = true;
-    submitButton.textContent = submittingText;
-  }
-
-  try {
-    const response = await fetch(endpoint, {
-      method: method.toUpperCase(),
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
-
-    let data;
-    try {
-      // Attempt to parse JSON, works even for errors if body is JSON
-      data = await response.json();
-    } catch (jsonError) {
-      // Handle cases where response is not JSON (e.g., 500 HTML error page)
-      if (!response.ok) {
-        // Throw generic HTTP error if parsing failed on an error response
-        throw new Error(`HTTP error! Status: ${response.status}, Response not JSON.`);
-      }
-      // If response was ok but not JSON, might be unexpected. Log and treat as success with no data.
-      console.warn("Response was OK but not valid JSON.");
-      data = null; // Success, but no data parsed
-    }
-
-    if (!response.ok) {
-      // Use error message from parsed JSON body if available, otherwise default
-      const errorMessage = data?.error || `HTTP error! Status: ${response.status}`;
-      throw new Error(errorMessage);
-    }
-
-    // Call the success callback
-    onSuccess(data, formElement);
-
-  } catch (error: any) {
-    console.error('Form submission error:', error);
-    // Call the error callback
-    onError(error, statusElement);
-    // Note: error is not re-thrown here, allowing the flow to complete in finally.
-    // The onError callback is responsible for user feedback.
-
-  } finally {
-    // Re-enable button and restore text in finally block to ensure it always happens
-    if (submitButton) {
-      submitButton.disabled = false;
-      submitButton.textContent = originalButtonText;
-    }
-  }
-}
-
-/**
- * Sets up a standard event listener for form submission that calls submitFormData.
- * Use this for simple forms without pre-submission steps like auth checks.
- * @param options - Configuration for the form submission.
- */
-export function setupFormSubmitListener(options: FormSubmitOptions): void {
-   const { formElement } = options;
-   if (!formElement) {
-       console.error('Form submission listener requires a formElement.');
-       return;
-   }
-
-   formElement.addEventListener('submit', async (event) => {
-        event.preventDefault();
-        // Directly call the async submission logic
-        await submitFormData(options);
-   });
-}
-
-/**
- * Helper function to reset a Cloudflare Turnstile widget within a given form.
- * @param formElement - The form containing the Turnstile widget.
- */
-export function resetTurnstileWidget(formElement: HTMLFormElement | null): void {
-    if (!formElement) return;
-    try {
-        // Find the widget using its class
-        const widgetElement = formElement.querySelector<HTMLElement>('.cf-turnstile');
-        if (widgetElement && typeof (window as any).turnstile?.reset === 'function') {
-           (window as any).turnstile.reset(widgetElement);
-           console.log("Turnstile widget reset.");
-        }
-    } catch (e) {
-        console.warn("Could not reset Turnstile widget", e);
-    }
-}
 ```
 ---
 

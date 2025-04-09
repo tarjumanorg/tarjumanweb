@@ -1,19 +1,22 @@
 ---
 // src/components/Reviews.astro
 import type { GuestbookEntry } from "../types/types";
-interface Props { reviews: GuestbookEntry[]; }
+interface Props {
+  reviews: GuestbookEntry[];
+}
 const { reviews } = Astro.props;
 ---
 
 <div>
-  <form
-    id="guestbook-form"
-    method="post"
-    action="/api/guestbook"
-  >
+  <form id="guestbook-form" method="post" action="/api/guestbook">
     <h3>Leave a message</h3>
     {/* Added min-height and margin for better layout */}
-    <div id="form-status" aria-live="polite" style="min-height: 1.5em; margin-bottom: 1em; font-weight: bold;"></div>
+    <div
+      id="form-status"
+      aria-live="polite"
+      style="min-height: 1.5em; margin-bottom: 1em; font-weight: bold;"
+    >
+    </div>
 
     <div>
       <label for="name">Name</label>
@@ -36,65 +39,70 @@ const { reviews } = Astro.props;
       />
     </div>
     {/* Added data-original-text attribute for handler */}
-    <button
-      id="submit-button"
-      type="submit"
-      data-original-text="Submit"
-    >
+    <button id="submit-button" type="submit" data-original-text="Submit">
       Submit
     </button>
   </form>
 
   <h3>Guestbook Entries</h3>
-   <div id="reviews-list">
-    {reviews.length > 0 ? (
+  <div id="reviews-list">
+    {
+      reviews.length > 0 ? (
         <ul>
-        {reviews.map((review) => (
+          {reviews.map((review) => (
             <li>
-            <p><strong>{review.name}</strong></p> {/* Made name bold */}
-            <p>{review.message}</p>
+              <p>
+                <strong>{review.name}</strong>
+              </p>{" "}
+              {/* Made name bold */}
+              <p>{review.message}</p>
             </li>
-        ))}
+          ))}
         </ul>
-    ) : (
+      ) : (
         <p>No reviews yet. Be the first!</p>
-    )}
-   </div>
+      )
+    }
+  </div>
 </div>
 
 <script>
-  // Import the simplified setup function and types
-  import { setupFormSubmitListener } from '../utils/formHandler';
-  import type { FormSubmitOptions } from '../types/types'; // <-- CHANGE THIS LINE'S PATH
+  import { setupFormSubmitListener } from "../scripts/formHandler";
+  import type { FormSubmitOptions } from "../types/types";
 
-  const form = document.getElementById('guestbook-form') as HTMLFormElement | null;
-  const nameInput = document.getElementById('name') as HTMLInputElement | null;
-  const messageInput = document.getElementById('message') as HTMLInputElement | null;
-  const statusDiv = document.getElementById('form-status') as HTMLElement | null;
-  const submitButton = document.getElementById('submit-button') as HTMLButtonElement | null;
+  const form = document.getElementById(
+    "guestbook-form",
+  ) as HTMLFormElement | null;
+  const nameInput = document.getElementById("name") as HTMLInputElement | null;
+  const messageInput = document.getElementById(
+    "message",
+  ) as HTMLInputElement | null;
+  const statusDiv = document.getElementById(
+    "form-status",
+  ) as HTMLElement | null;
+  const submitButton = document.getElementById(
+    "submit-button",
+  ) as HTMLButtonElement | null;
 
   if (form && nameInput && messageInput && statusDiv && submitButton) {
-
     const preparePayloadForReview = (): Record<string, any> | null => {
       const name = nameInput.value.trim();
       const message = messageInput.value.trim();
 
       if (!name || !message) {
         if (statusDiv) {
-          statusDiv.textContent = 'Please enter both name and message.';
-          statusDiv.style.color = 'red';
+          statusDiv.textContent = "Please enter both name and message.";
+          statusDiv.style.color = "red";
         }
-        // Return null to signal validation failure
         return null;
       }
-      // Return payload if valid
       return { name, message };
     };
 
     const onReviewSuccess = (data: any, formElement: HTMLFormElement) => {
       if (statusDiv) {
-        statusDiv.textContent = 'Message submitted successfully!';
-        statusDiv.style.color = 'green';
+        statusDiv.textContent = "Message submitted successfully!";
+        statusDiv.style.color = "green";
       }
       formElement.reset();
       // IMPORTANT: This simple example doesn't dynamically update the list above.
@@ -102,16 +110,18 @@ const { reviews } = Astro.props;
       // more advanced techniques (HTMX, Alpine, framework component).
       console.log("Submitted data:", data);
       // Optional: Clear success message after a delay
-      setTimeout(() => { if(statusDiv) statusDiv.textContent = ''; }, 5000);
+      setTimeout(() => {
+        if (statusDiv) statusDiv.textContent = "";
+      }, 5000);
     };
 
     const onReviewError = (error: Error, statusElement: HTMLElement | null) => {
-       if (statusElement) {
-         statusElement.textContent = `Error: ${error.message || 'Could not submit message.'}`;
-         statusElement.style.color = 'red';
-       }
-       // Optional: Clear error message after a delay
-       // setTimeout(() => { if(statusDiv) statusDiv.textContent = ''; }, 8000);
+      if (statusElement) {
+        statusElement.textContent = `Error: ${error.message || "Could not submit message."}`;
+        statusElement.style.color = "red";
+      }
+      // Optional: Clear error message after a delay
+      // setTimeout(() => { if(statusDiv) statusDiv.textContent = ''; }, 8000);
     };
 
     // Define options for the handler
@@ -123,13 +133,14 @@ const { reviews } = Astro.props;
       onSuccess: onReviewSuccess,
       onError: onReviewError,
       // endpoint and method will be taken from the form's action and method attributes
-      submitText: "Submit" // Explicitly set restore text if needed
+      submitText: "Submit", // Explicitly set restore text if needed
     };
 
     // Use the setup function for simple forms
     setupFormSubmitListener(options);
-
   } else {
-    console.error('Could not find all required form elements for guestbook submission script.');
+    console.error(
+      "Could not find all required form elements for guestbook submission script.",
+    );
   }
 </script>
