@@ -16,15 +16,18 @@ export interface Order {
   orderer_name: string;
   status: "pending" | "processing" | "completed" | "cancelled"; // Example statuses
   created_at: string; // ISO timestamp string
-  phone?: string | null; // ADDED: Optional phone field
-  // Add any other relevant fields from your orders table based on schema
-  page_count?: number | null;
-  total_price?: number | null; // Assuming bigint maps to number safely for JS
-  package_tier?: string | null;
-  uploaded_file_urls?: any | null; // Use a more specific type if possible
+  phone?: string | null;
+  package_tier?: string | null; // Text representation, e.g., "Basic", "Standard"
+  page_count?: number | null; // Optional for now
+  total_price?: number | null; // Optional for now, Assuming bigint maps to number safely for JS
+  uploaded_file_urls?: string[] | null; // Array of storage paths/URLs for main documents
+  is_disadvantaged: boolean; // ADDED
+  is_school: boolean; // ADDED
+  certificate_url?: string | null; // ADDED: Path/URL for the certificate file
+  // Add any other relevant fields from your orders table
 }
 
-// FormSubmitOptions interface remains unchanged
+// FormSubmitOptions interface remains unchanged - but NOTE it won't be used by order.astro directly
 export interface FormSubmitOptions {
   formElement: HTMLFormElement;
   statusElement: HTMLElement | null;

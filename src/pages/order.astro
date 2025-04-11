@@ -1,22 +1,78 @@
 ---
 // src/pages/order.astro
-import Layout from "../layout/Layout.astro";
+import Layout from "../layout/Layout.astro"; // Adjusted path if needed
+// REMOVED: import { resetTurnstileWidget } from "../../scripts/formHandler"; // Moved to client script
 
 const title = "Place Your Order";
-const turnstileSiteKey = "0x4AAAAAABDz77Fkj-zw6ls4";
+// IMPORTANT: Use your *actual* Turnstile Site Key
+const turnstileSiteKey = import.meta.env.PUBLIC_TURNSTILE_SITE_KEY || "1x00000000000000000000AA"; // Fallback for local dev if needed
 ---
 
 <Layout title={title}>
   <head>
-    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" defer
-    ></script>
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" defer></script>
+    <style>
+      .hidden {
+        display: none;
+      }
+      label {
+        display: block;
+        margin-top: 0.75rem;
+        margin-bottom: 0.25rem;
+        font-weight: bold;
+      }
+      input[type="text"], input[type="tel"], input[type="file"], input[type="range"] {
+        width: 100%;
+        padding: 0.5em;
+        margin-bottom: 0.5rem;
+        box-sizing: border-box;
+      }
+       .checkbox-group {
+        display: flex;
+        align-items: center;
+        margin-top: 1rem;
+      }
+       .checkbox-group input[type="checkbox"] {
+        margin-right: 0.5em;
+        width: auto; /* Override default width */
+      }
+       .checkbox-group label {
+         margin: 0; /* Override default margin */
+         font-weight: normal;
+       }
+      #package-display-container {
+        margin-top: 0.5rem;
+        font-style: italic;
+        font-weight: bold;
+        min-height: 1.2em; /* Prevent layout shift */
+      }
+      #certificate-container {
+          border-left: 3px solid #eee;
+          padding-left: 1em;
+          margin-left: 1.5em; /* Indent under checkbox */
+          margin-top: 0.5rem;
+      }
+    </style>
   </head>
   <main>
     <section>
       <h1>{title}</h1>
-      <p>Enter your details to start your order.</p>
+      <p>Enter your details and upload your documents to start your order.</p>
 
-      <form id="order-form" action="/api/orders/create" method="post">
+      <form id="order-form" action="/api/orders/create" method="post" enctype="multipart/form-data">
+
+        <div>
+          <label for="order-files">Upload Documents:</label>
+          <input
+            type="file"
+            id="order-files"
+            name="order_files"
+            multiple
+            required
+            accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png" /> {/* Adjust accepted types */}
+          <small>You can select multiple files. Allowed types: PDF, DOC, DOCX, TXT, JPG, PNG.</small>
+        </div>
+
         <div>
           <label for="orderer-name">Your Name:</label>
           <input
@@ -24,27 +80,56 @@ const turnstileSiteKey = "0x4AAAAAABDz77Fkj-zw6ls4";
             id="orderer-name"
             name="orderer_name"
             required
-            placeholder="Enter your name"
+            placeholder="Enter your full name"
           />
         </div>
 
-        <div style="margin-top: 1rem;">
+        <div>
           <label for="phone">Phone Number:</label>
           <input
             required
             type="tel"
             id="phone"
             name="phone"
-            placeholder="+62XXXXXXX"
+            placeholder="+62XXXXXXX or 08XXXXXXXX"
           />
         </div>
 
+        <div>
+            <label for="package-slider">Choose Package:</label>
+            <input type="range" id="package-slider" name="package_tier_value" min="1" max="3" step="1" value="1" required />
+            <div id="package-display-container">
+                Selected Package: <span id="selected-package-display">Basic</span>
+            </div>
+        </div>
+
+        <div class="checkbox-group">
+           <input type="checkbox" id="is-disadvantaged" name="is_disadvantaged" />
+           <label for="is-disadvantaged">I am of Economic Disadvantage</label>
+        </div>
+        {/* Container for conditional certificate upload */}
+        <div id="certificate-container" class="hidden">
+             <label for="certificate-file">Upload Certificate of Indigence:</label>
+             <input
+                type="file"
+                id="certificate-file"
+                name="certificate_file"
+                accept=".pdf,.jpg,.jpeg,.png" /> {/* Adjust accepted types */}
+        </div>
+
+        <div class="checkbox-group">
+            <input type="checkbox" id="is-school" name="is_school" />
+            <label for="is-school">We are a school/body</label>
+        </div>
+
+
         <!-- Turnstile Widget -->
-        <div
-          class="cf-turnstile"
-          data-sitekey={turnstileSiteKey}
-          style="margin-top: 1rem;"
-        >
+        <div style="margin-top: 1.5rem;">
+            <label>Verification:</label>
+            <div
+                class="cf-turnstile"
+                data-sitekey={turnstileSiteKey}
+            ></div>
         </div>
         <!-- End Turnstile Widget -->
 
@@ -58,7 +143,7 @@ const turnstileSiteKey = "0x4AAAAAABDz77Fkj-zw6ls4";
         <button
           type="submit"
           id="submit-order-button"
-          style="margin-top: 1rem;"
+          style="margin-top: 1rem; padding: 0.8em 1.5em;"
           data-original-text="Submit Order"
         >
           Submit Order
@@ -69,158 +154,208 @@ const turnstileSiteKey = "0x4AAAAAABDz77Fkj-zw6ls4";
 </Layout>
 
 <script>
-  import { submitFormData, resetTurnstileWidget } from "../scripts/formHandler";
-  import type { FormSubmitOptions } from "../types/types";
+  // Import for client-side script usage
+  import { resetTurnstileWidget } from "../scripts/formHandler";
 
+  // --- Element References ---
   const form = document.getElementById("order-form") as HTMLFormElement | null;
-  const nameInput = document.getElementById(
-    "orderer-name",
-  ) as HTMLInputElement | null;
-  const phoneInput = document.getElementById(
-    "phone",
-  ) as HTMLInputElement | null;
-  const submitButton = document.getElementById(
-    "submit-order-button",
-  ) as HTMLButtonElement | null;
-  const statusDiv = document.getElementById(
-    "order-status",
-  ) as HTMLElement | null;
-  const turnstileResponseInputName = "cf-turnstile-response";
+  const orderFilesInput = document.getElementById("order-files") as HTMLInputElement | null;
+  const nameInput = document.getElementById("orderer-name") as HTMLInputElement | null;
+  const phoneInput = document.getElementById("phone") as HTMLInputElement | null;
+  const packageSlider = document.getElementById("package-slider") as HTMLInputElement | null;
+  const packageDisplay = document.getElementById("selected-package-display") as HTMLSpanElement | null;
+  const disadvantageCheckbox = document.getElementById("is-disadvantaged") as HTMLInputElement | null;
+  const certificateContainer = document.getElementById("certificate-container") as HTMLDivElement | null;
+  const certificateInput = document.getElementById("certificate-file") as HTMLInputElement | null;
+  const schoolCheckbox = document.getElementById("is-school") as HTMLInputElement | null;
+  const submitButton = document.getElementById("submit-order-button") as HTMLButtonElement | null;
+  const statusDiv = document.getElementById("order-status") as HTMLElement | null;
+  const turnstileResponseInputName = "cf-turnstile-response"; // Default name
 
-  if (form && nameInput && phoneInput && submitButton && statusDiv) {
+  // --- Package Mapping (Client-side for display) ---
+   const packageMap: { [key: string]: string } = {
+      "1": "Basic",
+      "2": "Standard",
+      "3": "Premium",
+   };
+
+  // --- Event Listener Setup ---
+  // Check if all essential elements exist before adding listeners
+  if (form && orderFilesInput && nameInput && phoneInput && packageSlider && packageDisplay && disadvantageCheckbox && certificateContainer && certificateInput && schoolCheckbox && submitButton && statusDiv) {
+
+    // 1. Slider Event Listener
+    packageSlider.addEventListener('input', () => {
+        // Type guard (optional but good practice if packageMap could be incomplete)
+        const selectedValue = packageSlider.value;
+        packageDisplay.textContent = packageMap[selectedValue] || 'Unknown';
+    });
+
+    // 2. Disadvantage Checkbox Listener
+    disadvantageCheckbox.addEventListener('change', () => {
+        if (disadvantageCheckbox.checked) {
+            certificateContainer.classList.remove('hidden');
+            certificateInput.required = true; // Make certificate required if box is checked
+        } else {
+            certificateContainer.classList.add('hidden');
+            certificateInput.required = false;
+            certificateInput.value = ''; // Clear input if unchecked
+        }
+    });
+
+    // 3. Form Submit Listener
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
+      const originalButtonText = submitButton.dataset.originalText || "Submit Order";
 
-      if (statusDiv) statusDiv.textContent = "Ensuring session...";
-      if (submitButton) {
-        submitButton.disabled = true;
-        submitButton.textContent = "Initializing...";
+      // --- Helper function for setting status ---
+      const setStatus = (message: string, color: string = "inherit") => {
+          if (statusDiv) { // Check statusDiv exists before using it
+              statusDiv.textContent = message;
+              statusDiv.style.color = color;
+          } else {
+              console.warn("Status display element not found."); // Fallback logging
+          }
+      };
+
+      // --- Reset Status ---
+      setStatus(""); // Clear previous status
+
+      // --- Client-Side Validation ---
+      // Add checks inside the handler for robustness and to satisfy TS
+      if (!orderFilesInput || !disadvantageCheckbox || !certificateInput || !submitButton) {
+          setStatus("Error: Form elements missing, cannot submit.", "red");
+          console.error("Essential form elements missing during submit event.");
+          return;
       }
 
+      if (!orderFilesInput.files || orderFilesInput.files.length === 0) {
+          setStatus("Please select at least one document file.", "red");
+          orderFilesInput.focus();
+          return;
+      }
+      if (disadvantageCheckbox.checked && (!certificateInput.files || certificateInput.files.length === 0)) {
+           setStatus("Please upload the certificate of indigence.", "red");
+           certificateInput.focus();
+           return;
+      }
+      // Add more validation if needed (name, phone format etc.)
+
+
+      // --- UI State: Start Submission ---
+      submitButton.disabled = true;
+      submitButton.textContent = "Initializing...";
+      setStatus("Ensuring session...");
+
+
       try {
-        const authResponse = await fetch("/api/auth/anonymous", {
-          method: "POST",
-        });
+        // --- Step 1: Ensure Anonymous Auth Session ---
+        const authResponse = await fetch("/api/auth/anonymous", { method: "POST" });
         if (!authResponse.ok) {
           let errorMsg = "Authentication setup failed.";
           try {
             const errorData = await authResponse.json();
-            errorMsg =
-              errorData.error ||
-              `Authentication setup failed: Status ${authResponse.status}`;
-          } catch (e) {
-            /* Ignore */
-          }
-          throw new Error(errorMsg);
+            errorMsg = errorData.error || `Authentication setup failed (${authResponse.status})`;
+          } catch (e) { /* Ignore parsing error if response wasn't JSON */ }
+          throw new Error(errorMsg); // Throw to be caught by outer catch
         }
         console.log("Session ensured via server endpoint.");
+        setStatus("Preparing order...");
 
-        const preparePayloadForOrder = (): Record<string, any> | null => {
-          const ordererName = nameInput.value.trim();
-          const phone = phoneInput.value.trim();
-          const formData = new FormData(form);
-          const turnstileToken = formData
-            .get(turnstileResponseInputName)
-            ?.toString();
 
-          if (!ordererName) {
-            if (statusDiv) {
-              statusDiv.textContent = "Please enter your name.";
-              statusDiv.style.color = "red";
-            }
-            nameInput.focus();
-            return null;
-          }
+        // --- Step 2: Construct FormData ---
+        // Create FormData directly from the form element
+        const formData = new FormData(form);
 
-          if (!phone) {
-            if (statusDiv) {
-              statusDiv.textContent = "Please enter your phone number.";
-              statusDiv.style.color = "red";
-            }
-            phoneInput.focus();
-            return null;
-          }
 
-          if (!turnstileToken) {
-            if (statusDiv) {
-              statusDiv.textContent =
-                "CAPTCHA challenge failed, missing, or expired. Please try again.";
-              statusDiv.style.color = "red";
-            }
-            resetTurnstileWidget(form);
-            return null;
-          }
+        // --- Step 3: Submit FormData to API ---
+        submitButton.textContent = "Submitting Order...";
+        setStatus("Submitting order (this may take a moment)...");
 
-          const payload: Record<string, any> = {
-            orderer_name: ordererName,
-            turnstileToken: turnstileToken,
-            phone: phone,
-          };
+        const apiEndpoint = form.action;
+        const response = await fetch(apiEndpoint, {
+            method: "POST",
+            body: formData,
+            // IMPORTANT: Do NOT set Content-Type header when sending FormData with fetch
+        });
 
-          return payload;
-        };
-
-        const onOrderSuccess = (data: any, formElement: HTMLFormElement) => {
-          if (statusDiv) {
-            statusDiv.textContent = `Order submitted successfully! Order ID: ${data.id}`;
-            statusDiv.style.color = "green";
-          }
-          formElement.reset();
-          resetTurnstileWidget(formElement);
-          setTimeout(() => {
-            if (statusDiv) statusDiv.textContent = "";
-          }, 5000);
-        };
-
-        const onOrderError = (
-          error: Error,
-          statusElement: HTMLElement | null,
-        ) => {
-          if (statusElement) {
-            if (error.message.includes("CAPTCHA verification failed")) {
-              statusElement.textContent = `Error: CAPTCHA verification failed. Please try again. (${error.message})`;
-            } else if (
-              error.message.includes("missing") ||
-              error.message.includes("expired")
-            ) {
-              statusElement.textContent = `Error: CAPTCHA challenge failed or expired. Please wait and try again. (${error.message})`;
+        // --- Step 4: Handle API Response ---
+        let responseData;
+        try {
+            // Check if response has content before trying to parse JSON
+            const contentType = response.headers.get("content-type");
+            if (response.ok && contentType && contentType.includes("application/json")) {
+                responseData = await response.json();
+            } else if (!response.ok) {
+                // Try to parse JSON error even if status is bad
+                if (contentType && contentType.includes("application/json")) {
+                   responseData = await response.json();
+                } else {
+                   // Handle non-JSON errors (e.g., HTML error page)
+                   const textResponse = await response.text();
+                   throw new Error(`Server error: Status ${response.status}. Response: ${textResponse.substring(0, 100)}...`); // Show snippet
+                }
             } else {
-              statusElement.textContent = `Error: ${error.message || "An unexpected error occurred."}`;
+                 // Response OK but not JSON (unexpected but maybe valid case?)
+                 console.warn("Response was OK but not valid JSON. Proceeding without response data.");
+                 responseData = { id: "[N/A - Non-JSON Response]" }; // Placeholder
             }
-            statusElement.style.color = "red";
-          }
-          resetTurnstileWidget(form);
-        };
 
-        const options: FormSubmitOptions = {
-          formElement: form,
-          statusElement: statusDiv,
-          submitButton: submitButton,
-          preparePayload: preparePayloadForOrder,
-          onSuccess: onOrderSuccess,
-          onError: onOrderError,
-          submittingText: "Submitting Order...",
-          submitText: "Submit Order",
-        };
-
-        await submitFormData(options);
-      } catch (authError: any) {
-        console.error("Anonymous auth error:", authError);
-        if (statusDiv) {
-          statusDiv.textContent = `Error: ${authError.message || "Failed to prepare session."}`;
-          statusDiv.style.color = "red";
+        } catch (jsonError: any) {
+             // Catch explicit JSON parsing errors or errors thrown above
+             console.error("Error processing server response:", jsonError);
+             throw new Error(`Failed to process server response: ${jsonError.message || "Unknown processing error"}`);
         }
+
+        if (!response.ok) {
+             // Use error message from parsed JSON body if available, otherwise default
+             const errorMessage = responseData?.error || `Submission failed with status: ${response.status}`;
+             throw new Error(errorMessage);
+        }
+
+        // --- Success ---
+        setStatus(`Order submitted successfully! Order ID: ${responseData?.id || '[Unknown ID]'}`, "green");
+        form.reset(); // Reset all form fields
+        // Manually trigger updates needed after form.reset()
+        if (packageSlider && packageDisplay) { // Add checks after reset
+            packageDisplay.textContent = packageMap[packageSlider.value] || 'Unknown';
+        }
+        if (certificateContainer && certificateInput) { // Add checks after reset
+            certificateContainer.classList.add('hidden');
+            certificateInput.required = false;
+        }
+        resetTurnstileWidget(form); // Reset CAPTCHA
+        setTimeout(() => { setStatus(""); }, 8000); // Clear message after delay
+
+
+      } catch (error: any) {
+        // --- Error Handling ---
+        console.error("Order submission error:", error);
+        setStatus(`Error: ${error.message || "An unexpected error occurred."}`, "red");
+        resetTurnstileWidget(form); // Reset CAPTCHA on error too
+        // Optional: Clear error message after a delay
+        // setTimeout(() => { setStatus(''); }, 10000);
+
+      } finally {
+        // --- UI State: End Submission ---
+        // Re-enable button and restore text regardless of success/error (check exists)
         if (submitButton) {
-          submitButton.disabled = false;
-          submitButton.textContent =
-            submitButton.dataset.originalText || "Submit Order";
+            submitButton.disabled = false;
+            submitButton.textContent = originalButtonText;
         }
-        resetTurnstileWidget(form);
       }
     });
+
   } else {
+    // Log error if initial element finding failed
     console.error(
-      "Could not find all required elements (form, name, phone, submit, status) for the order form script.",
+      "Could not find all required elements for the order form script. Check element IDs and ensure the DOM is ready.",
+       { form, orderFilesInput, nameInput, phoneInput, packageSlider, packageDisplay, disadvantageCheckbox, certificateContainer, certificateInput, schoolCheckbox, submitButton, statusDiv } // Log which elements were found/not found
     );
+    // Optionally display an error to the user if the form cannot initialize
+    const errorDisplay = document.getElementById("order-status");
+    if (errorDisplay) {
+        errorDisplay.textContent = "Error initializing the order form. Please refresh the page.";
+        errorDisplay.style.color = "red";
+    }
   }
 </script>
