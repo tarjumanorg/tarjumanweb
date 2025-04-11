@@ -9,19 +9,22 @@ export interface GuestbookEntry {
   // created_at?: string;
 }
 
-// Existing Order type
+// Updated Order type
 export interface Order {
   id: number; // Or string if you use UUIDs
   user_id: string; // Foreign key to auth.users
   orderer_name: string;
   status: "pending" | "processing" | "completed" | "cancelled"; // Example statuses
   created_at: string; // ISO timestamp string
-  // Add any other relevant fields from your orders table
-  // e.g., order_details: any;
-  // e.g., total_price: number;
+  phone?: string | null; // ADDED: Optional phone field
+  // Add any other relevant fields from your orders table based on schema
+  page_count?: number | null;
+  total_price?: number | null; // Assuming bigint maps to number safely for JS
+  package_tier?: string | null;
+  uploaded_file_urls?: any | null; // Use a more specific type if possible
 }
 
-// --- ADD THIS INTERFACE DEFINITION ---
+// FormSubmitOptions interface remains unchanged
 export interface FormSubmitOptions {
   formElement: HTMLFormElement;
   statusElement: HTMLElement | null;
@@ -39,4 +42,3 @@ export interface FormSubmitOptions {
   submittingText?: string;
   submitText?: string; // Optional: Text to restore button to (defaults to initial text)
 }
-// --- END OF ADDED INTERFACE ---

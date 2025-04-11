@@ -415,7 +415,6 @@ try {
 ```
 ---
 import Layout from "../layout/Layout.astro";
-export const prerender = true;
 const title = "Supabase and Astro Demo";
 ---
 
@@ -445,21 +444,19 @@ const title = "Supabase and Astro Demo";
 import Layout from "../layout/Layout.astro";
 
 const title = "Place Your Order";
-// Ensure this key is correct for your Cloudflare Turnstile site
 const turnstileSiteKey = "0x4AAAAAABDz77Fkj-zw6ls4";
 ---
 
 <Layout title={title}>
   <head>
-    <!-- Add Turnstile script in the head -->
-    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" defer></script>
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" defer
+    ></script>
   </head>
   <main>
     <section>
       <h1>{title}</h1>
-      <p>Enter your name to start your order.</p>
+      <p>Enter your details to start your order.</p>
 
-      {/* Ensure form has action and method for the handler */}
       <form id="order-form" action="/api/orders/create" method="post">
         <div>
           <label for="orderer-name">Your Name:</label>
@@ -472,6 +469,17 @@ const turnstileSiteKey = "0x4AAAAAABDz77Fkj-zw6ls4";
           />
         </div>
 
+        <div style="margin-top: 1rem;">
+          <label for="phone">Phone Number:</label>
+          <input
+            required
+            type="tel"
+            id="phone"
+            name="phone"
+            placeholder="+62XXXXXXX"
+          />
+        </div>
+
         <!-- Turnstile Widget -->
         <div
           class="cf-turnstile"
@@ -481,12 +489,13 @@ const turnstileSiteKey = "0x4AAAAAABDz77Fkj-zw6ls4";
         </div>
         <!-- End Turnstile Widget -->
 
-        {/* Status display area */}
-        <div id="order-status" aria-live="polite" style="margin-top: 1rem; min-height: 1.5em; font-weight: bold;">
-          {/* Status messages will appear here */}
+        <div
+          id="order-status"
+          aria-live="polite"
+          style="margin-top: 1rem; min-height: 1.5em; font-weight: bold;"
+        >
         </div>
 
-        {/* Submit button with data attribute */}
         <button
           type="submit"
           id="submit-order-button"
@@ -496,98 +505,134 @@ const turnstileSiteKey = "0x4AAAAAABDz77Fkj-zw6ls4";
           Submit Order
         </button>
       </form>
-
     </section>
   </main>
 </Layout>
 
 <script>
-  // Import the core submission logic and Turnstile reset helper
-  import { submitFormData, resetTurnstileWidget } from '../utils/formHandler';
-import type { FormSubmitOptions } from '../types/types'; // <-- CHANGE THIS LINE'S PATH
+  import { submitFormData, resetTurnstileWidget } from "../scripts/formHandler";
+  import type { FormSubmitOptions } from "../types/types";
 
-  const form = document.getElementById('order-form') as HTMLFormElement | null;
-  const nameInput = document.getElementById('orderer-name') as HTMLInputElement | null;
-  const submitButton = document.getElementById('submit-order-button') as HTMLButtonElement | null;
-  const statusDiv = document.getElementById('order-status') as HTMLElement | null;
-  const turnstileResponseInputName = 'cf-turnstile-response'; // Default name for implicit rendering
+  const form = document.getElementById("order-form") as HTMLFormElement | null;
+  const nameInput = document.getElementById(
+    "orderer-name",
+  ) as HTMLInputElement | null;
+  const phoneInput = document.getElementById(
+    "phone",
+  ) as HTMLInputElement | null;
+  const submitButton = document.getElementById(
+    "submit-order-button",
+  ) as HTMLButtonElement | null;
+  const statusDiv = document.getElementById(
+    "order-status",
+  ) as HTMLElement | null;
+  const turnstileResponseInputName = "cf-turnstile-response";
 
-  if (form && nameInput && submitButton && statusDiv) {
-
-    // Add the event listener directly as we have a pre-submission step (auth)
-    form.addEventListener('submit', async (event) => {
+  if (form && nameInput && phoneInput && submitButton && statusDiv) {
+    form.addEventListener("submit", async (event) => {
       event.preventDefault();
 
-      // --- Pre-submission Step: Anonymous Authentication ---
-      if (statusDiv) statusDiv.textContent = 'Ensuring session...';
+      if (statusDiv) statusDiv.textContent = "Ensuring session...";
       if (submitButton) {
-          submitButton.disabled = true; // Disable button during auth check
-          submitButton.textContent = 'Initializing...'; // Indicate activity
+        submitButton.disabled = true;
+        submitButton.textContent = "Initializing...";
       }
 
       try {
-        const authResponse = await fetch('/api/auth/anonymous', { method: 'POST' });
+        const authResponse = await fetch("/api/auth/anonymous", {
+          method: "POST",
+        });
         if (!authResponse.ok) {
-          let errorMsg = 'Authentication setup failed.';
+          let errorMsg = "Authentication setup failed.";
           try {
-              const errorData = await authResponse.json();
-              errorMsg = errorData.error || `Authentication setup failed: Status ${authResponse.status}`;
-          } catch(e) { /* Ignore JSON parse error on auth failure */ }
+            const errorData = await authResponse.json();
+            errorMsg =
+              errorData.error ||
+              `Authentication setup failed: Status ${authResponse.status}`;
+          } catch (e) {
+            /* Ignore */
+          }
           throw new Error(errorMsg);
         }
         console.log("Session ensured via server endpoint.");
 
-        // --- Auth successful, proceed with form data submission ---
-
-        // Define callbacks and payload preparation *inside* the listener's success path
         const preparePayloadForOrder = (): Record<string, any> | null => {
           const ordererName = nameInput.value.trim();
-          const formData = new FormData(form); // Get form data AFTER auth ensures form isn't cleared prematurely
-          const turnstileToken = formData.get(turnstileResponseInputName)?.toString();
+          const phone = phoneInput.value.trim();
+          const formData = new FormData(form);
+          const turnstileToken = formData
+            .get(turnstileResponseInputName)
+            ?.toString();
 
           if (!ordererName) {
-              if (statusDiv) { statusDiv.textContent = 'Please enter your name.'; statusDiv.style.color = 'red'; }
-              nameInput.focus();
-              return null; // Validation failure
+            if (statusDiv) {
+              statusDiv.textContent = "Please enter your name.";
+              statusDiv.style.color = "red";
+            }
+            nameInput.focus();
+            return null;
           }
+
+          if (!phone) {
+            if (statusDiv) {
+              statusDiv.textContent = "Please enter your phone number.";
+              statusDiv.style.color = "red";
+            }
+            phoneInput.focus();
+            return null;
+          }
+
           if (!turnstileToken) {
-              if (statusDiv) { statusDiv.textContent = 'CAPTCHA challenge failed, missing, or expired. Please try again.'; statusDiv.style.color = 'red'; }
-              resetTurnstileWidget(form); // Reset Turnstile on failure
-              return null; // Validation failure
+            if (statusDiv) {
+              statusDiv.textContent =
+                "CAPTCHA challenge failed, missing, or expired. Please try again.";
+              statusDiv.style.color = "red";
+            }
+            resetTurnstileWidget(form);
+            return null;
           }
-          // Return payload if valid
-          return { orderer_name: ordererName, turnstileToken };
+
+          const payload: Record<string, any> = {
+            orderer_name: ordererName,
+            turnstileToken: turnstileToken,
+            phone: phone,
+          };
+
+          return payload;
         };
 
         const onOrderSuccess = (data: any, formElement: HTMLFormElement) => {
           if (statusDiv) {
-              statusDiv.textContent = `Order submitted successfully! Order ID: ${data.id}`;
-              statusDiv.style.color = 'green';
+            statusDiv.textContent = `Order submitted successfully! Order ID: ${data.id}`;
+            statusDiv.style.color = "green";
           }
-          formElement.reset(); // Reset form fields
-          resetTurnstileWidget(formElement); // Reset Turnstile widget
-          // Optional: Clear success message after delay
-          setTimeout(() => { if(statusDiv) statusDiv.textContent = ''; }, 5000);
+          formElement.reset();
+          resetTurnstileWidget(formElement);
+          setTimeout(() => {
+            if (statusDiv) statusDiv.textContent = "";
+          }, 5000);
         };
 
-        const onOrderError = (error: Error, statusElement: HTMLElement | null) => {
+        const onOrderError = (
+          error: Error,
+          statusElement: HTMLElement | null,
+        ) => {
           if (statusElement) {
-             // Provide specific feedback for CAPTCHA failure
-             if (error.message.includes("CAPTCHA verification failed")) {
-                 statusElement.textContent = `Error: CAPTCHA verification failed. Please try again. (${error.message})`;
-             } else if (error.message.includes("missing") || error.message.includes("expired")) {
-                 statusElement.textContent = `Error: CAPTCHA challenge failed or expired. Please wait and try again. (${error.message})`;
-             }
-             else {
-                 statusElement.textContent = `Error: ${error.message || 'An unexpected error occurred.'}`;
-             }
-             statusElement.style.color = 'red';
+            if (error.message.includes("CAPTCHA verification failed")) {
+              statusElement.textContent = `Error: CAPTCHA verification failed. Please try again. (${error.message})`;
+            } else if (
+              error.message.includes("missing") ||
+              error.message.includes("expired")
+            ) {
+              statusElement.textContent = `Error: CAPTCHA challenge failed or expired. Please wait and try again. (${error.message})`;
+            } else {
+              statusElement.textContent = `Error: ${error.message || "An unexpected error occurred."}`;
+            }
+            statusElement.style.color = "red";
           }
-          // Always reset Turnstile on error for a fresh challenge
           resetTurnstileWidget(form);
         };
 
-        // Prepare options for the submitFormData utility
         const options: FormSubmitOptions = {
           formElement: form,
           statusElement: statusDiv,
@@ -595,36 +640,32 @@ import type { FormSubmitOptions } from '../types/types'; // <-- CHANGE THIS LINE
           preparePayload: preparePayloadForOrder,
           onSuccess: onOrderSuccess,
           onError: onOrderError,
-          // endpoint and method are from form attributes
-          submittingText: 'Submitting Order...', // Custom submitting text
-          submitText: 'Submit Order' // Restore text
+          submittingText: "Submitting Order...",
+          submitText: "Submit Order",
         };
 
-        // Call the reusable submission logic function
         await submitFormData(options);
-        // submitFormData handles the button state during its execution (try/finally)
-
       } catch (authError: any) {
-         // Handle errors specifically from the anonymous auth step
-         console.error('Anonymous auth error:', authError);
-         if (statusDiv) {
-            statusDiv.textContent = `Error: ${authError.message || 'Failed to prepare session.'}`;
-            statusDiv.style.color = 'red';
-         }
-         // Ensure button is re-enabled if auth fails before submitFormData is called
-         if (submitButton) {
-            submitButton.disabled = false;
-            submitButton.textContent = submitButton.dataset.originalText || 'Submit Order';
-         }
-         // Reset turnstile even on auth errors
-         resetTurnstileWidget(form);
+        console.error("Anonymous auth error:", authError);
+        if (statusDiv) {
+          statusDiv.textContent = `Error: ${authError.message || "Failed to prepare session."}`;
+          statusDiv.style.color = "red";
+        }
+        if (submitButton) {
+          submitButton.disabled = false;
+          submitButton.textContent =
+            submitButton.dataset.originalText || "Submit Order";
+        }
+        resetTurnstileWidget(form);
       }
-    }); // End of form event listener
-
+    });
   } else {
-    console.error('Could not find all required elements for the order form script.');
+    console.error(
+      "Could not find all required elements (form, name, phone, submit, status) for the order form script.",
+    );
   }
 </script>
+
 ```
 ---
 
@@ -1172,37 +1213,57 @@ export async function createGuestbookEntry(name: string, message: string): Promi
 // src/services/order.service.ts
 import { supabase } from '../lib/supabase';
 import type { Order } from '../types/types'; // Import the Order type
-import { handleSupabaseError } from '../utils/supabaseUtils'; // <-- IMPORT ADDED
+import { handleSupabaseError } from '../utils/supabaseUtils';
 
 /**
  * Creates a new order associated with a user ID.
  * Throws an error if validation fails or the Supabase insert operation fails.
  * @param userId - The authenticated user's ID (can be anonymous user ID).
  * @param ordererName - The name provided for the order.
+ * @param phone - The phone number provided for the order (optional). // UPDATED DOC
  * @returns The newly created order data.
  */
-export async function createOrder(userId: string, ordererName: string): Promise<Order> {
-    // Basic validation (remains unchanged)
+// UPDATED: Function signature to accept optional phone
+export async function createOrder(userId: string, ordererName: string, phone?: string): Promise<Order> {
+    // Basic validation
     if (!userId || !ordererName || ordererName.trim().length === 0) {
         throw new Error("Validation Error: User ID and a non-empty Orderer Name are required to create an order.");
     }
+    // Optional: Add more specific validation for phone format here if needed
 
     const trimmedOrdererName = ordererName.trim();
+    // Trim phone only if it exists, otherwise ensure it's undefined/null
+    const trimmedPhone = phone?.trim() || undefined;
     const operationContext = "create order";
 
-    console.log(`Service: Creating order for user '${userId}' with name '${trimmedOrdererName}'...`);
+    // UPDATED: Logging to include phone
+    console.log(`Service: Creating order for user '${userId}' with name '${trimmedOrdererName}' and phone '${trimmedPhone || 'N/A'}'...`);
+
+    // Prepare data for insertion, using Partial<Order> for better type checking
+    const insertData: Partial<Order> & { user_id: string; orderer_name: string; status: Order['status'] } = {
+      user_id: userId,
+      orderer_name: trimmedOrdererName,
+      status: "pending", // Set default status
+      // Intentionally omit other fields unless they have default values to set here
+    };
+
+    // Conditionally add phone to the insert object only if it has a value
+    if (trimmedPhone) {
+      insertData.phone = trimmedPhone;
+    }
+    // Similarly, add other optional fields here if they are passed and have values
+
+    console.log("Service: Inserting data:", insertData); // Log the object being sent to Supabase
+
     const { data, error } = await supabase
       .from("orders")
-      .insert({
-        user_id: userId,
-        orderer_name: trimmedOrdererName,
-        status: "pending", // Set default status
-      })
-      .select() // Select all fields of the new order defined in the Order type
+      // UPDATED: Use the prepared insertData object
+      .insert(insertData)
+      .select() // Select all fields defined in the Order type (should now include phone)
       .single(); // Expecting one row back
 
     // Use the utility function to handle potential errors
-    handleSupabaseError(error, operationContext); // <-- REPLACED if(error) block
+    handleSupabaseError(error, operationContext);
 
      // If handleSupabaseError didn't throw, check if data was returned (safeguard)
      if (!data) {
@@ -1211,6 +1272,8 @@ export async function createOrder(userId: string, ordererName: string): Promise<
      }
 
     console.log("Service: Created order successfully with ID:", data.id);
+    // The returned 'data' object from Supabase should include the 'phone' field
+    // if it was successfully inserted according to the .select()
     return data as Order;
 }
 
@@ -1234,19 +1297,22 @@ export interface GuestbookEntry {
   // created_at?: string;
 }
 
-// Existing Order type
+// Updated Order type
 export interface Order {
   id: number; // Or string if you use UUIDs
   user_id: string; // Foreign key to auth.users
   orderer_name: string;
   status: "pending" | "processing" | "completed" | "cancelled"; // Example statuses
   created_at: string; // ISO timestamp string
-  // Add any other relevant fields from your orders table
-  // e.g., order_details: any;
-  // e.g., total_price: number;
+  phone?: string | null; // ADDED: Optional phone field
+  // Add any other relevant fields from your orders table based on schema
+  page_count?: number | null;
+  total_price?: number | null; // Assuming bigint maps to number safely for JS
+  package_tier?: string | null;
+  uploaded_file_urls?: any | null; // Use a more specific type if possible
 }
 
-// --- ADD THIS INTERFACE DEFINITION ---
+// FormSubmitOptions interface remains unchanged
 export interface FormSubmitOptions {
   formElement: HTMLFormElement;
   statusElement: HTMLElement | null;
@@ -1264,7 +1330,6 @@ export interface FormSubmitOptions {
   submittingText?: string;
   submitText?: string; // Optional: Text to restore button to (defaults to initial text)
 }
-// --- END OF ADDED INTERFACE ---
 ```
 ---
 

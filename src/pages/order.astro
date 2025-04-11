@@ -3,22 +3,19 @@
 import Layout from "../layout/Layout.astro";
 
 const title = "Place Your Order";
-// Ensure this key is correct for your Cloudflare Turnstile site
 const turnstileSiteKey = "0x4AAAAAABDz77Fkj-zw6ls4";
 ---
 
 <Layout title={title}>
   <head>
-    <!-- Add Turnstile script in the head -->
     <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" defer
     ></script>
   </head>
   <main>
     <section>
       <h1>{title}</h1>
-      <p>Enter your name to start your order.</p>
+      <p>Enter your details to start your order.</p>
 
-      {/* Ensure form has action and method for the handler */}
       <form id="order-form" action="/api/orders/create" method="post">
         <div>
           <label for="orderer-name">Your Name:</label>
@@ -31,6 +28,17 @@ const turnstileSiteKey = "0x4AAAAAABDz77Fkj-zw6ls4";
           />
         </div>
 
+        <div style="margin-top: 1rem;">
+          <label for="phone">Phone Number:</label>
+          <input
+            required
+            type="tel"
+            id="phone"
+            name="phone"
+            placeholder="+62XXXXXXX"
+          />
+        </div>
+
         <!-- Turnstile Widget -->
         <div
           class="cf-turnstile"
@@ -40,16 +48,13 @@ const turnstileSiteKey = "0x4AAAAAABDz77Fkj-zw6ls4";
         </div>
         <!-- End Turnstile Widget -->
 
-        {/* Status display area */}
         <div
           id="order-status"
           aria-live="polite"
           style="margin-top: 1rem; min-height: 1.5em; font-weight: bold;"
         >
-          {/* Status messages will appear here */}
         </div>
 
-        {/* Submit button with data attribute */}
         <button
           type="submit"
           id="submit-order-button"
@@ -71,24 +76,25 @@ const turnstileSiteKey = "0x4AAAAAABDz77Fkj-zw6ls4";
   const nameInput = document.getElementById(
     "orderer-name",
   ) as HTMLInputElement | null;
+  const phoneInput = document.getElementById(
+    "phone",
+  ) as HTMLInputElement | null;
   const submitButton = document.getElementById(
     "submit-order-button",
   ) as HTMLButtonElement | null;
   const statusDiv = document.getElementById(
     "order-status",
   ) as HTMLElement | null;
-  const turnstileResponseInputName = "cf-turnstile-response"; // Default name for implicit rendering
+  const turnstileResponseInputName = "cf-turnstile-response";
 
-  if (form && nameInput && submitButton && statusDiv) {
-    // Add the event listener directly as we have a pre-submission step (auth)
+  if (form && nameInput && phoneInput && submitButton && statusDiv) {
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
 
-      // --- Pre-submission Step: Anonymous Authentication ---
       if (statusDiv) statusDiv.textContent = "Ensuring session...";
       if (submitButton) {
-        submitButton.disabled = true; // Disable button during auth check
-        submitButton.textContent = "Initializing..."; // Indicate activity
+        submitButton.disabled = true;
+        submitButton.textContent = "Initializing...";
       }
 
       try {
@@ -103,18 +109,16 @@ const turnstileSiteKey = "0x4AAAAAABDz77Fkj-zw6ls4";
               errorData.error ||
               `Authentication setup failed: Status ${authResponse.status}`;
           } catch (e) {
-            /* Ignore JSON parse error on auth failure */
+            /* Ignore */
           }
           throw new Error(errorMsg);
         }
         console.log("Session ensured via server endpoint.");
 
-        // --- Auth successful, proceed with form data submission ---
-
-        // Define callbacks and payload preparation *inside* the listener's success path
         const preparePayloadForOrder = (): Record<string, any> | null => {
           const ordererName = nameInput.value.trim();
-          const formData = new FormData(form); // Get form data AFTER auth ensures form isn't cleared prematurely
+          const phone = phoneInput.value.trim();
+          const formData = new FormData(form);
           const turnstileToken = formData
             .get(turnstileResponseInputName)
             ?.toString();
@@ -125,19 +129,35 @@ const turnstileSiteKey = "0x4AAAAAABDz77Fkj-zw6ls4";
               statusDiv.style.color = "red";
             }
             nameInput.focus();
-            return null; // Validation failure
+            return null;
           }
+
+          if (!phone) {
+            if (statusDiv) {
+              statusDiv.textContent = "Please enter your phone number.";
+              statusDiv.style.color = "red";
+            }
+            phoneInput.focus();
+            return null;
+          }
+
           if (!turnstileToken) {
             if (statusDiv) {
               statusDiv.textContent =
                 "CAPTCHA challenge failed, missing, or expired. Please try again.";
               statusDiv.style.color = "red";
             }
-            resetTurnstileWidget(form); // Reset Turnstile on failure
-            return null; // Validation failure
+            resetTurnstileWidget(form);
+            return null;
           }
-          // Return payload if valid
-          return { orderer_name: ordererName, turnstileToken };
+
+          const payload: Record<string, any> = {
+            orderer_name: ordererName,
+            turnstileToken: turnstileToken,
+            phone: phone,
+          };
+
+          return payload;
         };
 
         const onOrderSuccess = (data: any, formElement: HTMLFormElement) => {
@@ -145,9 +165,8 @@ const turnstileSiteKey = "0x4AAAAAABDz77Fkj-zw6ls4";
             statusDiv.textContent = `Order submitted successfully! Order ID: ${data.id}`;
             statusDiv.style.color = "green";
           }
-          formElement.reset(); // Reset form fields
-          resetTurnstileWidget(formElement); // Reset Turnstile widget
-          // Optional: Clear success message after delay
+          formElement.reset();
+          resetTurnstileWidget(formElement);
           setTimeout(() => {
             if (statusDiv) statusDiv.textContent = "";
           }, 5000);
@@ -158,7 +177,6 @@ const turnstileSiteKey = "0x4AAAAAABDz77Fkj-zw6ls4";
           statusElement: HTMLElement | null,
         ) => {
           if (statusElement) {
-            // Provide specific feedback for CAPTCHA failure
             if (error.message.includes("CAPTCHA verification failed")) {
               statusElement.textContent = `Error: CAPTCHA verification failed. Please try again. (${error.message})`;
             } else if (
@@ -171,11 +189,9 @@ const turnstileSiteKey = "0x4AAAAAABDz77Fkj-zw6ls4";
             }
             statusElement.style.color = "red";
           }
-          // Always reset Turnstile on error for a fresh challenge
           resetTurnstileWidget(form);
         };
 
-        // Prepare options for the submitFormData utility
         const options: FormSubmitOptions = {
           formElement: form,
           statusElement: statusDiv,
@@ -183,34 +199,28 @@ const turnstileSiteKey = "0x4AAAAAABDz77Fkj-zw6ls4";
           preparePayload: preparePayloadForOrder,
           onSuccess: onOrderSuccess,
           onError: onOrderError,
-          // endpoint and method are from form attributes
-          submittingText: "Submitting Order...", // Custom submitting text
-          submitText: "Submit Order", // Restore text
+          submittingText: "Submitting Order...",
+          submitText: "Submit Order",
         };
 
-        // Call the reusable submission logic function
         await submitFormData(options);
-        // submitFormData handles the button state during its execution (try/finally)
       } catch (authError: any) {
-        // Handle errors specifically from the anonymous auth step
         console.error("Anonymous auth error:", authError);
         if (statusDiv) {
           statusDiv.textContent = `Error: ${authError.message || "Failed to prepare session."}`;
           statusDiv.style.color = "red";
         }
-        // Ensure button is re-enabled if auth fails before submitFormData is called
         if (submitButton) {
           submitButton.disabled = false;
           submitButton.textContent =
             submitButton.dataset.originalText || "Submit Order";
         }
-        // Reset turnstile even on auth errors
         resetTurnstileWidget(form);
       }
-    }); // End of form event listener
+    });
   } else {
     console.error(
-      "Could not find all required elements for the order form script.",
+      "Could not find all required elements (form, name, phone, submit, status) for the order form script.",
     );
   }
 </script>
