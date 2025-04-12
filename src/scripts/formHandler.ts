@@ -1,9 +1,8 @@
-// src/utils/formHandler.ts
-import type { FormSubmitOptions } from '../types/types';
+import type { FormSubmitOptions as SimpleFormSubmitOptions } from '../types/types'; 
 
-export async function submitFormData(options: FormSubmitOptions): Promise<void> {
+export async function submitFormData(options: SimpleFormSubmitOptions): Promise<void> {
   const {
-    formElement, // Needed for reset on success
+    formElement, 
     statusElement,
     submitButton,
     preparePayload,
@@ -12,34 +11,30 @@ export async function submitFormData(options: FormSubmitOptions): Promise<void> 
     endpoint = formElement.action,
     method = formElement.method || 'POST',
     submittingText = 'Submitting...',
-    submitText = submitButton?.dataset.originalText || 'Submit', // Use data attribute or default
+
   } = options;
 
-  // Store original text if not already done
   if (submitButton && !submitButton.dataset.originalText) {
-      submitButton.dataset.originalText = submitButton.textContent || 'Submit';
+    submitButton.dataset.originalText = submitButton.textContent || 'Submit';
   }
+
   const originalButtonText = submitButton?.dataset.originalText || 'Submit';
 
-  // Clear previous status
   if (statusElement) {
     statusElement.textContent = '';
     statusElement.style.color = 'inherit';
   }
 
-  // Prepare payload - validation happens here
   const payload = preparePayload();
   if (payload === null) {
-    // Validation failed, message should be handled by preparePayload/onError caller
-    // Ensure button is re-enabled if it was disabled before this check
-     if (submitButton && submitButton.disabled) {
-        submitButton.disabled = false;
-        submitButton.textContent = originalButtonText;
-     }
-    return; // Exit early
+
+    if (submitButton && submitButton.disabled) {
+      submitButton.disabled = false;
+      submitButton.textContent = originalButtonText;
+    }
+    return; 
   }
 
-  // Manage UI state: Disable button
   if (submitButton) {
     submitButton.disabled = true;
     submitButton.textContent = submittingText;
@@ -55,39 +50,36 @@ export async function submitFormData(options: FormSubmitOptions): Promise<void> 
       body: JSON.stringify(payload),
     });
 
-    let data;
+    let data: any;
     try {
-      // Attempt to parse JSON, works even for errors if body is JSON
+
       data = await response.json();
     } catch (jsonError) {
-      // Handle cases where response is not JSON (e.g., 500 HTML error page)
+
       if (!response.ok) {
-        // Throw generic HTTP error if parsing failed on an error response
+
         throw new Error(`HTTP error! Status: ${response.status}, Response not JSON.`);
       }
-      // If response was ok but not JSON, might be unexpected. Log and treat as success with no data.
+
       console.warn("Response was OK but not valid JSON.");
-      data = null; // Success, but no data parsed
+      data = null; 
     }
 
     if (!response.ok) {
-      // Use error message from parsed JSON body if available, otherwise default
+
       const errorMessage = data?.error || `HTTP error! Status: ${response.status}`;
       throw new Error(errorMessage);
     }
 
-    // Call the success callback
     onSuccess(data, formElement);
 
   } catch (error: any) {
     console.error('Form submission error:', error);
-    // Call the error callback
+
     onError(error, statusElement);
-    // Note: error is not re-thrown here, allowing the flow to complete in finally.
-    // The onError callback is responsible for user feedback.
 
   } finally {
-    // Re-enable button and restore text in finally block to ensure it always happens
+
     if (submitButton) {
       submitButton.disabled = false;
       submitButton.textContent = originalButtonText;
@@ -95,39 +87,176 @@ export async function submitFormData(options: FormSubmitOptions): Promise<void> 
   }
 }
 
-/**
- * Sets up a standard event listener for form submission that calls submitFormData.
- * Use this for simple forms without pre-submission steps like auth checks.
- * @param options - Configuration for the form submission.
- */
-export function setupFormSubmitListener(options: FormSubmitOptions): void {
-   const { formElement } = options;
-   if (!formElement) {
-       console.error('Form submission listener requires a formElement.');
-       return;
-   }
+export function setupFormSubmitListener(options: SimpleFormSubmitOptions): void {
+  const { formElement } = options;
+  if (!formElement) {
+    console.error('Form submission listener requires a formElement.');
+    return;
+  }
 
-   formElement.addEventListener('submit', async (event) => {
-        event.preventDefault();
-        // Directly call the async submission logic
-        await submitFormData(options);
-   });
+  formElement.addEventListener('submit', async (event) => {
+    event.preventDefault(); 
+    await submitFormData(options); 
+  });
 }
 
-/**
- * Helper function to reset a Cloudflare Turnstile widget within a given form.
- * @param formElement - The form containing the Turnstile widget.
- */
 export function resetTurnstileWidget(formElement: HTMLFormElement | null): void {
-    if (!formElement) return;
-    try {
-        // Find the widget using its class
-        const widgetElement = formElement.querySelector<HTMLElement>('.cf-turnstile');
-        if (widgetElement && typeof (window as any).turnstile?.reset === 'function') {
-           (window as any).turnstile.reset(widgetElement);
-           console.log("Turnstile widget reset.");
-        }
-    } catch (e) {
-        console.warn("Could not reset Turnstile widget", e);
+  if (!formElement) return;
+  try {
+
+    const widgetElement = formElement.querySelector<HTMLElement>('.cf-turnstile');
+
+    if (widgetElement && typeof (window as any).turnstile?.reset === 'function') {
+      (window as any).turnstile.reset(widgetElement); 
+      console.log("Turnstile widget reset.");
+    } else if (widgetElement) {
+
+      console.warn("Turnstile widget found, but reset function is not available on window.turnstile.");
     }
+
+  } catch (e) {
+
+    console.warn("Could not reset Turnstile widget", e);
+  }
+}
+
+export interface OrderFormSubmitOptions {
+  formElement: HTMLFormElement;
+  statusElement: HTMLElement | null;
+  submitButton: HTMLButtonElement | null;
+
+  authEndpoint?: string;
+
+  onSuccess: (data: any, formElement: HTMLFormElement) => void;
+  onError: (error: Error, statusElement: HTMLElement | null) => void;
+
+  initializingText?: string;
+  submittingText?: string;
+
+}
+
+export async function submitOrderForm(options: OrderFormSubmitOptions): Promise<void> {
+  const {
+    formElement,
+    statusElement,
+    submitButton,
+    authEndpoint = '/api/auth/anonymous', 
+    onSuccess,
+    onError,
+    initializingText = 'Initializing...',
+    submittingText = 'Submitting Order...',
+  } = options;
+
+  if (!formElement || !submitButton || !statusElement) {
+    console.error("submitOrderForm requires formElement, submitButton, and statusElement.");
+
+    if (statusElement) {
+      statusElement.textContent = "Form initialization error.";
+      statusElement.style.color = "red";
+    }
+    return; 
+  }
+
+  if (!submitButton.dataset.originalText) {
+    submitButton.dataset.originalText = submitButton.textContent || 'Submit Order';
+  }
+  const originalButtonText = submitButton.dataset.originalText; 
+
+  statusElement.textContent = '';
+  statusElement.style.color = 'inherit';
+
+  submitButton.disabled = true;
+  submitButton.textContent = initializingText;
+  statusElement.textContent = "Ensuring session..."; 
+
+  try {
+
+    console.log(`Calling anonymous auth endpoint: ${authEndpoint}`);
+    const authResponse = await fetch(authEndpoint, { method: "POST" });
+
+    if (!authResponse.ok) {
+      let errorMsg = `Authentication setup failed (${authResponse.status})`;
+      try {
+
+        const errorData = await authResponse.json();
+        errorMsg = errorData.error || errorMsg;
+      } catch (e) {
+
+        console.warn(`Auth response was not OK (${authResponse.status}) and not JSON.`);
+      }
+
+      throw new Error(errorMsg);
+    }
+    console.log("Anonymous session ensured successfully.");
+    statusElement.textContent = "Preparing order..."; 
+
+    const formData = new FormData(formElement);
+
+    const apiEndpoint = formElement.action; 
+    if (!apiEndpoint) {
+      throw new Error("Form action attribute is missing or empty.");
+    }
+    console.log(`Submitting FormData to API endpoint: ${apiEndpoint}`);
+    submitButton.textContent = submittingText; 
+    statusElement.textContent = "Submitting order (this may take a moment)..."; 
+
+    const response = await fetch(apiEndpoint, {
+      method: "POST", 
+      body: formData,
+
+    });
+
+    let responseData: any = null; 
+    try {
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        responseData = await response.json(); 
+      } else if (!response.ok) {
+
+        const textResponse = await response.text();
+        console.error(`Server error response (non-JSON): Status ${response.status}, Body: ${textResponse.substring(0, 500)}...`);
+
+        throw new Error(`Server error: Status ${response.status}. Check server logs for details.`);
+      } else {
+
+        console.warn(`Response from ${apiEndpoint} was OK (${response.status}) but not JSON.`);
+
+      }
+    } catch (parseError: any) {
+
+      console.error("Error processing server response:", parseError);
+      if (!response.ok) {
+
+        throw new Error(`Failed to process server error response: Status ${response.status}`);
+      } else {
+
+        throw new Error(`Failed to process successful server response: ${parseError.message || "Unknown processing error"}`);
+      }
+    }
+
+    if (!response.ok) {
+
+      const errorMessage = responseData?.error || `Submission failed with status: ${response.status}`;
+      throw new Error(errorMessage);
+    }
+
+    console.log("Order form submitted successfully via helper.");
+    onSuccess(responseData, formElement); 
+
+  } catch (error: any) {
+
+    console.error("Order submission process error:", error);
+
+    onError(error, statusElement); 
+
+  } finally {
+
+    console.log("Resetting form UI state and Turnstile widget.");
+    resetTurnstileWidget(formElement); 
+
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent = originalButtonText;
+    }
+  }
 }

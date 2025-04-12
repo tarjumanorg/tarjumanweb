@@ -19,13 +19,15 @@ export const GET: APIRoute = async () => {
 export const POST: APIRoute = async ({ request, locals }) => {
   console.log("API Route: POST /api/guestbook invoked.");
 
-  // --- OPTIMIZATION ---
-  // The middleware already ensures that locals.userId is present for this route.
-  // We can safely use the non-null assertion operator (!).
-  // The redundant check 'if (!userId) { ... }' has been removed.
-  const userId = locals.userId!;
-  console.log(`API Route: User authenticated via middleware. User ID: ${userId}. Ready to create guestbook entry.`);
-  // --- END OPTIMIZATION ---
+  // --- Explicit Authentication Check ---
+  const userId = locals.userId;
+  if (!userId) {
+      console.log("API Error: Unauthorized access attempt to POST /api/guestbook.");
+      // Middleware should prevent this, but this is an explicit safeguard.
+      return jsonErrorResponse(401, "Unauthorized: Authentication required.");
+  }
+  console.log(`API Route: User authenticated. User ID: ${userId}. Ready to create guestbook entry.`);
+  // --- End Explicit Authentication Check ---
 
   try {
     let name: string;
@@ -44,8 +46,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
         return jsonErrorResponse(400, "Bad Request: Invalid JSON body.");
     }
 
-    // Note: userId isn't directly used by createGuestbookEntry in this example,
-    // but it confirms the user is authenticated as required by the middleware.
+    // Note: userId confirms authentication but isn't directly used by createGuestbookEntry here.
     const newEntry = await createGuestbookEntry(name, message);
 
     console.log("API Route: Guestbook entry created successfully.");

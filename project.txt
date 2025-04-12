@@ -275,7 +275,7 @@ export const supabase = createClient(
 import { defineMiddleware } from "astro:middleware";
 import { supabase } from "../lib/supabase";
 import { setAuthCookies, deleteAuthCookies } from '../utils/auth';
-import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from '../utils/constants';
+import { ACCESS_TOKEN, REFRESH_TOKEN } from '../utils/constants';
 
 // Consider moving these to constants.ts as well if used elsewhere
 // Or import if they are defined there
@@ -293,8 +293,8 @@ function matchesPath(pathname: string, pathsToCheck: string[]): boolean {
 export const onRequest = defineMiddleware(
   async ({ locals, url, cookies, redirect }, next) => {
     // --- 1. Centralized Auth Check ---
-    const accessToken = cookies.get(ACCESS_TOKEN_COOKIE);
-    const refreshToken = cookies.get(REFRESH_TOKEN_COOKIE);
+    const accessToken = cookies.get(ACCESS_TOKEN);
+    const refreshToken = cookies.get(REFRESH_TOKEN);
     locals.userId = undefined; // Ensure locals.userId is reset per request
 
     if (accessToken) {
@@ -441,23 +441,79 @@ const title = "Supabase and Astro Demo";
 ```
 ---
 // src/pages/order.astro
-import Layout from "../layout/Layout.astro";
+import Layout from "../layout/Layout.astro"; // Adjusted path if needed
+// REMOVED: import { resetTurnstileWidget } from "../../scripts/formHandler"; // Moved to client script
 
 const title = "Place Your Order";
-const turnstileSiteKey = "0x4AAAAAABDz77Fkj-zw6ls4";
+// IMPORTANT: Use your *actual* Turnstile Site Key
+const turnstileSiteKey = import.meta.env.PUBLIC_TURNSTILE_SITE_KEY || "1x00000000000000000000AA"; // Fallback for local dev if needed
 ---
 
 <Layout title={title}>
   <head>
-    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" defer
-    ></script>
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" defer></script>
+    <style>
+      .hidden {
+        display: none;
+      }
+      label {
+        display: block;
+        margin-top: 0.75rem;
+        margin-bottom: 0.25rem;
+        font-weight: bold;
+      }
+      input[type="text"], input[type="tel"], input[type="file"], input[type="range"] {
+        width: 100%;
+        padding: 0.5em;
+        margin-bottom: 0.5rem;
+        box-sizing: border-box;
+      }
+       .checkbox-group {
+        display: flex;
+        align-items: center;
+        margin-top: 1rem;
+      }
+       .checkbox-group input[type="checkbox"] {
+        margin-right: 0.5em;
+        width: auto; /* Override default width */
+      }
+       .checkbox-group label {
+         margin: 0; /* Override default margin */
+         font-weight: normal;
+       }
+      #package-display-container {
+        margin-top: 0.5rem;
+        font-style: italic;
+        font-weight: bold;
+        min-height: 1.2em; /* Prevent layout shift */
+      }
+      #certificate-container {
+          border-left: 3px solid #eee;
+          padding-left: 1em;
+          margin-left: 1.5em; /* Indent under checkbox */
+          margin-top: 0.5rem;
+      }
+    </style>
   </head>
   <main>
     <section>
       <h1>{title}</h1>
-      <p>Enter your details to start your order.</p>
+      <p>Enter your details and upload your documents to start your order.</p>
 
-      <form id="order-form" action="/api/orders/create" method="post">
+      <form id="order-form" action="/api/orders/create" method="post" enctype="multipart/form-data">
+
+        <div>
+          <label for="order-files">Upload Documents:</label>
+          <input
+            type="file"
+            id="order-files"
+            name="order_files"
+            multiple
+            required
+            accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png" /> {/* Adjust accepted types */}
+          <small>You can select multiple files. Allowed types: PDF, DOC, DOCX, TXT, JPG, PNG.</small>
+        </div>
+
         <div>
           <label for="orderer-name">Your Name:</label>
           <input
@@ -465,27 +521,56 @@ const turnstileSiteKey = "0x4AAAAAABDz77Fkj-zw6ls4";
             id="orderer-name"
             name="orderer_name"
             required
-            placeholder="Enter your name"
+            placeholder="Enter your full name"
           />
         </div>
 
-        <div style="margin-top: 1rem;">
+        <div>
           <label for="phone">Phone Number:</label>
           <input
             required
             type="tel"
             id="phone"
             name="phone"
-            placeholder="+62XXXXXXX"
+            placeholder="+62XXXXXXX or 08XXXXXXXX"
           />
         </div>
 
+        <div>
+            <label for="package-slider">Choose Package:</label>
+            <input type="range" id="package-slider" name="package_tier_value" min="1" max="3" step="1" value="1" required />
+            <div id="package-display-container">
+                Selected Package: <span id="selected-package-display">Basic</span>
+            </div>
+        </div>
+
+        <div class="checkbox-group">
+           <input type="checkbox" id="is-disadvantaged" name="is_disadvantaged" />
+           <label for="is-disadvantaged">I am of Economic Disadvantage</label>
+        </div>
+        {/* Container for conditional certificate upload */}
+        <div id="certificate-container" class="hidden">
+             <label for="certificate-file">Upload Certificate of Indigence:</label>
+             <input
+                type="file"
+                id="certificate-file"
+                name="certificate_file"
+                accept=".pdf,.jpg,.jpeg,.png" /> {/* Adjust accepted types */}
+        </div>
+
+        <div class="checkbox-group">
+            <input type="checkbox" id="is-school" name="is_school" />
+            <label for="is-school">We are a school/body</label>
+        </div>
+
+
         <!-- Turnstile Widget -->
-        <div
-          class="cf-turnstile"
-          data-sitekey={turnstileSiteKey}
-          style="margin-top: 1rem;"
-        >
+        <div style="margin-top: 1.5rem;">
+            <label>Verification:</label>
+            <div
+                class="cf-turnstile"
+                data-sitekey={turnstileSiteKey}
+            ></div>
         </div>
         <!-- End Turnstile Widget -->
 
@@ -499,7 +584,7 @@ const turnstileSiteKey = "0x4AAAAAABDz77Fkj-zw6ls4";
         <button
           type="submit"
           id="submit-order-button"
-          style="margin-top: 1rem;"
+          style="margin-top: 1rem; padding: 0.8em 1.5em;"
           data-original-text="Submit Order"
         >
           Submit Order
@@ -510,162 +595,211 @@ const turnstileSiteKey = "0x4AAAAAABDz77Fkj-zw6ls4";
 </Layout>
 
 <script>
-  import { submitFormData, resetTurnstileWidget } from "../scripts/formHandler";
-  import type { FormSubmitOptions } from "../types/types";
+  // Import for client-side script usage
+  import { resetTurnstileWidget } from "../scripts/formHandler";
 
+  // --- Element References ---
   const form = document.getElementById("order-form") as HTMLFormElement | null;
-  const nameInput = document.getElementById(
-    "orderer-name",
-  ) as HTMLInputElement | null;
-  const phoneInput = document.getElementById(
-    "phone",
-  ) as HTMLInputElement | null;
-  const submitButton = document.getElementById(
-    "submit-order-button",
-  ) as HTMLButtonElement | null;
-  const statusDiv = document.getElementById(
-    "order-status",
-  ) as HTMLElement | null;
-  const turnstileResponseInputName = "cf-turnstile-response";
+  const orderFilesInput = document.getElementById("order-files") as HTMLInputElement | null;
+  const nameInput = document.getElementById("orderer-name") as HTMLInputElement | null;
+  const phoneInput = document.getElementById("phone") as HTMLInputElement | null;
+  const packageSlider = document.getElementById("package-slider") as HTMLInputElement | null;
+  const packageDisplay = document.getElementById("selected-package-display") as HTMLSpanElement | null;
+  const disadvantageCheckbox = document.getElementById("is-disadvantaged") as HTMLInputElement | null;
+  const certificateContainer = document.getElementById("certificate-container") as HTMLDivElement | null;
+  const certificateInput = document.getElementById("certificate-file") as HTMLInputElement | null;
+  const schoolCheckbox = document.getElementById("is-school") as HTMLInputElement | null;
+  const submitButton = document.getElementById("submit-order-button") as HTMLButtonElement | null;
+  const statusDiv = document.getElementById("order-status") as HTMLElement | null;
+  const turnstileResponseInputName = "cf-turnstile-response"; // Default name
 
-  if (form && nameInput && phoneInput && submitButton && statusDiv) {
+  // --- Package Mapping (Client-side for display) ---
+   const packageMap: { [key: string]: string } = {
+      "1": "Basic",
+      "2": "Standard",
+      "3": "Premium",
+   };
+
+  // --- Event Listener Setup ---
+  // Check if all essential elements exist before adding listeners
+  if (form && orderFilesInput && nameInput && phoneInput && packageSlider && packageDisplay && disadvantageCheckbox && certificateContainer && certificateInput && schoolCheckbox && submitButton && statusDiv) {
+
+    // 1. Slider Event Listener
+    packageSlider.addEventListener('input', () => {
+        // Type guard (optional but good practice if packageMap could be incomplete)
+        const selectedValue = packageSlider.value;
+        packageDisplay.textContent = packageMap[selectedValue] || 'Unknown';
+    });
+
+    // 2. Disadvantage Checkbox Listener
+    disadvantageCheckbox.addEventListener('change', () => {
+        if (disadvantageCheckbox.checked) {
+            certificateContainer.classList.remove('hidden');
+            certificateInput.required = true; // Make certificate required if box is checked
+        } else {
+            certificateContainer.classList.add('hidden');
+            certificateInput.required = false;
+            certificateInput.value = ''; // Clear input if unchecked
+        }
+    });
+
+    // 3. Form Submit Listener
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
+      const originalButtonText = submitButton.dataset.originalText || "Submit Order";
 
-      if (statusDiv) statusDiv.textContent = "Ensuring session...";
-      if (submitButton) {
-        submitButton.disabled = true;
-        submitButton.textContent = "Initializing...";
+      // --- Helper function for setting status ---
+      const setStatus = (message: string, color: string = "inherit") => {
+          if (statusDiv) { // Check statusDiv exists before using it
+              statusDiv.textContent = message;
+              statusDiv.style.color = color;
+          } else {
+              console.warn("Status display element not found."); // Fallback logging
+          }
+      };
+
+      // --- Reset Status ---
+      setStatus(""); // Clear previous status
+
+      // --- Client-Side Validation ---
+      // Add checks inside the handler for robustness and to satisfy TS
+      if (!orderFilesInput || !disadvantageCheckbox || !certificateInput || !submitButton) {
+          setStatus("Error: Form elements missing, cannot submit.", "red");
+          console.error("Essential form elements missing during submit event.");
+          return;
       }
 
+      if (!orderFilesInput.files || orderFilesInput.files.length === 0) {
+          setStatus("Please select at least one document file.", "red");
+          orderFilesInput.focus();
+          return;
+      }
+      if (disadvantageCheckbox.checked && (!certificateInput.files || certificateInput.files.length === 0)) {
+           setStatus("Please upload the certificate of indigence.", "red");
+           certificateInput.focus();
+           return;
+      }
+      // Add more validation if needed (name, phone format etc.)
+
+
+      // --- UI State: Start Submission ---
+      submitButton.disabled = true;
+      submitButton.textContent = "Initializing...";
+      setStatus("Ensuring session...");
+
+
       try {
-        const authResponse = await fetch("/api/auth/anonymous", {
-          method: "POST",
-        });
+        // --- Step 1: Ensure Anonymous Auth Session ---
+        const authResponse = await fetch("/api/auth/anonymous", { method: "POST" });
         if (!authResponse.ok) {
           let errorMsg = "Authentication setup failed.";
           try {
             const errorData = await authResponse.json();
-            errorMsg =
-              errorData.error ||
-              `Authentication setup failed: Status ${authResponse.status}`;
-          } catch (e) {
-            /* Ignore */
-          }
-          throw new Error(errorMsg);
+            errorMsg = errorData.error || `Authentication setup failed (${authResponse.status})`;
+          } catch (e) { /* Ignore parsing error if response wasn't JSON */ }
+          throw new Error(errorMsg); // Throw to be caught by outer catch
         }
         console.log("Session ensured via server endpoint.");
+        setStatus("Preparing order...");
 
-        const preparePayloadForOrder = (): Record<string, any> | null => {
-          const ordererName = nameInput.value.trim();
-          const phone = phoneInput.value.trim();
-          const formData = new FormData(form);
-          const turnstileToken = formData
-            .get(turnstileResponseInputName)
-            ?.toString();
 
-          if (!ordererName) {
-            if (statusDiv) {
-              statusDiv.textContent = "Please enter your name.";
-              statusDiv.style.color = "red";
-            }
-            nameInput.focus();
-            return null;
-          }
+        // --- Step 2: Construct FormData ---
+        // Create FormData directly from the form element
+        const formData = new FormData(form);
 
-          if (!phone) {
-            if (statusDiv) {
-              statusDiv.textContent = "Please enter your phone number.";
-              statusDiv.style.color = "red";
-            }
-            phoneInput.focus();
-            return null;
-          }
 
-          if (!turnstileToken) {
-            if (statusDiv) {
-              statusDiv.textContent =
-                "CAPTCHA challenge failed, missing, or expired. Please try again.";
-              statusDiv.style.color = "red";
-            }
-            resetTurnstileWidget(form);
-            return null;
-          }
+        // --- Step 3: Submit FormData to API ---
+        submitButton.textContent = "Submitting Order...";
+        setStatus("Submitting order (this may take a moment)...");
 
-          const payload: Record<string, any> = {
-            orderer_name: ordererName,
-            turnstileToken: turnstileToken,
-            phone: phone,
-          };
+        const apiEndpoint = form.action;
+        const response = await fetch(apiEndpoint, {
+            method: "POST",
+            body: formData,
+            // IMPORTANT: Do NOT set Content-Type header when sending FormData with fetch
+        });
 
-          return payload;
-        };
-
-        const onOrderSuccess = (data: any, formElement: HTMLFormElement) => {
-          if (statusDiv) {
-            statusDiv.textContent = `Order submitted successfully! Order ID: ${data.id}`;
-            statusDiv.style.color = "green";
-          }
-          formElement.reset();
-          resetTurnstileWidget(formElement);
-          setTimeout(() => {
-            if (statusDiv) statusDiv.textContent = "";
-          }, 5000);
-        };
-
-        const onOrderError = (
-          error: Error,
-          statusElement: HTMLElement | null,
-        ) => {
-          if (statusElement) {
-            if (error.message.includes("CAPTCHA verification failed")) {
-              statusElement.textContent = `Error: CAPTCHA verification failed. Please try again. (${error.message})`;
-            } else if (
-              error.message.includes("missing") ||
-              error.message.includes("expired")
-            ) {
-              statusElement.textContent = `Error: CAPTCHA challenge failed or expired. Please wait and try again. (${error.message})`;
+        // --- Step 4: Handle API Response ---
+        let responseData;
+        try {
+            // Check if response has content before trying to parse JSON
+            const contentType = response.headers.get("content-type");
+            if (response.ok && contentType && contentType.includes("application/json")) {
+                responseData = await response.json();
+            } else if (!response.ok) {
+                // Try to parse JSON error even if status is bad
+                if (contentType && contentType.includes("application/json")) {
+                   responseData = await response.json();
+                } else {
+                   // Handle non-JSON errors (e.g., HTML error page)
+                   const textResponse = await response.text();
+                   throw new Error(`Server error: Status ${response.status}. Response: ${textResponse.substring(0, 100)}...`); // Show snippet
+                }
             } else {
-              statusElement.textContent = `Error: ${error.message || "An unexpected error occurred."}`;
+                 // Response OK but not JSON (unexpected but maybe valid case?)
+                 console.warn("Response was OK but not valid JSON. Proceeding without response data.");
+                 responseData = { id: "[N/A - Non-JSON Response]" }; // Placeholder
             }
-            statusElement.style.color = "red";
-          }
-          resetTurnstileWidget(form);
-        };
 
-        const options: FormSubmitOptions = {
-          formElement: form,
-          statusElement: statusDiv,
-          submitButton: submitButton,
-          preparePayload: preparePayloadForOrder,
-          onSuccess: onOrderSuccess,
-          onError: onOrderError,
-          submittingText: "Submitting Order...",
-          submitText: "Submit Order",
-        };
-
-        await submitFormData(options);
-      } catch (authError: any) {
-        console.error("Anonymous auth error:", authError);
-        if (statusDiv) {
-          statusDiv.textContent = `Error: ${authError.message || "Failed to prepare session."}`;
-          statusDiv.style.color = "red";
+        } catch (jsonError: any) {
+             // Catch explicit JSON parsing errors or errors thrown above
+             console.error("Error processing server response:", jsonError);
+             throw new Error(`Failed to process server response: ${jsonError.message || "Unknown processing error"}`);
         }
+
+        if (!response.ok) {
+             // Use error message from parsed JSON body if available, otherwise default
+             const errorMessage = responseData?.error || `Submission failed with status: ${response.status}`;
+             throw new Error(errorMessage);
+        }
+
+        // --- Success ---
+        setStatus(`Order submitted successfully! Order ID: ${responseData?.id || '[Unknown ID]'}`, "green");
+        form.reset(); // Reset all form fields
+        // Manually trigger updates needed after form.reset()
+        if (packageSlider && packageDisplay) { // Add checks after reset
+            packageDisplay.textContent = packageMap[packageSlider.value] || 'Unknown';
+        }
+        if (certificateContainer && certificateInput) { // Add checks after reset
+            certificateContainer.classList.add('hidden');
+            certificateInput.required = false;
+        }
+        resetTurnstileWidget(form); // Reset CAPTCHA
+        setTimeout(() => { setStatus(""); }, 8000); // Clear message after delay
+
+
+      } catch (error: any) {
+        // --- Error Handling ---
+        console.error("Order submission error:", error);
+        setStatus(`Error: ${error.message || "An unexpected error occurred."}`, "red");
+        resetTurnstileWidget(form); // Reset CAPTCHA on error too
+        // Optional: Clear error message after a delay
+        // setTimeout(() => { setStatus(''); }, 10000);
+
+      } finally {
+        // --- UI State: End Submission ---
+        // Re-enable button and restore text regardless of success/error (check exists)
         if (submitButton) {
-          submitButton.disabled = false;
-          submitButton.textContent =
-            submitButton.dataset.originalText || "Submit Order";
+            submitButton.disabled = false;
+            submitButton.textContent = originalButtonText;
         }
-        resetTurnstileWidget(form);
       }
     });
+
   } else {
+    // Log error if initial element finding failed
     console.error(
-      "Could not find all required elements (form, name, phone, submit, status) for the order form script.",
+      "Could not find all required elements for the order form script. Check element IDs and ensure the DOM is ready.",
+       { form, orderFilesInput, nameInput, phoneInput, packageSlider, packageDisplay, disadvantageCheckbox, certificateContainer, certificateInput, schoolCheckbox, submitButton, statusDiv } // Log which elements were found/not found
     );
+    // Optionally display an error to the user if the form cannot initialize
+    const errorDisplay = document.getElementById("order-status");
+    if (errorDisplay) {
+        errorDisplay.textContent = "Error initializing the order form. Please refresh the page.";
+        errorDisplay.style.color = "red";
+    }
   }
 </script>
-
 ```
 ---
 
@@ -710,12 +844,12 @@ import { supabase } from "../../../lib/supabase";
 import { setAuthCookies } from '../../../utils/auth';
 import { jsonResponse, jsonErrorResponse } from '../../../utils/apiResponse'; // <-- IMPORT ADDED
 // Using constants for cookie names
-import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from '../../../utils/constants';
+import { ACCESS_TOKEN, REFRESH_TOKEN } from '../../../utils/constants';
 
 export const POST: APIRoute = async ({ cookies }) => {
   // Check for *existing*, *valid* tokens before attempting a new anonymous sign-in.
-  const existingAccessToken = cookies.get(ACCESS_TOKEN_COOKIE);
-  const existingRefreshToken = cookies.get(REFRESH_TOKEN_COOKIE);
+  const existingAccessToken = cookies.get(ACCESS_TOKEN);
+  const existingRefreshToken = cookies.get(REFRESH_TOKEN);
 
   if (existingAccessToken?.value && existingRefreshToken?.value) {
      console.log("Anonymous Route: Found existing tokens. Verifying session...");
@@ -792,14 +926,14 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
 import type { APIRoute } from "astro";
 import { supabase } from "../../../lib/supabase";
 import type { Provider } from "@supabase/supabase-js";
-import { AUTH_CALLBACK_PATH } from "../../../utils/constants";
+import { CALLBACK_PATH } from "../../../utils/constants";
 import { jsonErrorResponse } from '../../../utils/apiResponse'; // <-- IMPORT ADDED
 
 export const POST: APIRoute = async ({ request, cookies, redirect, url }) => {
   const formData = await request.formData();
   const provider = formData.get("provider")?.toString();
 
-  const redirectUrl = `${url.origin}${AUTH_CALLBACK_PATH}`;
+  const redirectUrl = `${url.origin}${CALLBACK_PATH}`;
 
   if (provider === "google") {
     const { data, error } = await supabase.auth.signInWithOAuth({
@@ -916,87 +1050,184 @@ export const POST: APIRoute = async ({ request, locals }) => {
 ```
 // src/pages/api/orders/create.ts
 import type { APIRoute } from "astro";
+import { supabase } from "../../../lib/supabase"; // Direct import for storage
 import { createOrder } from "../../../services/order.service";
-import { verifyTurnstileToken } from '../../../utils/turnstile'; // <-- IMPORT the new utility
+import { verifyTurnstileToken } from '../../../utils/turnstile';
 import { jsonResponse, jsonErrorResponse } from '../../../utils/apiResponse';
+import { sanitizeFilename } from "../../../utils/filenameUtils"; // Assuming you create this utility
 
-// TURNSTILE_SECRET_KEY is no longer needed here
+// Helper function to generate a random suffix
+const generateRandomSuffix = (length = 6) => Math.random().toString(36).substring(2, 2 + length);
 
+// --- API Route Handler ---
 export const POST: APIRoute = async ({ request, locals, clientAddress }) => {
   console.log("API Route: POST /api/orders/create invoked.");
 
-  // --- Authentication Check (remains the same) ---
+  // --- Authentication Check (Middleware Guarantee) ---
   const userId = locals.userId!; // Asserting non-null based on middleware guarantee
   console.log(`API Route: User authenticated via middleware. User ID: ${userId}`);
-  // ---
 
-  // --- Request Body Parsing & Validation (remains the same) ---
-  let ordererName: string | undefined;
-  let turnstileToken: string | undefined;
+  // --- FormData Parsing ---
+  let formData: FormData;
   try {
-    interface OrderRequestBody {
-        orderer_name?: string;
-        turnstileToken?: string; // Field name from client-side payload
-    }
-    const body: OrderRequestBody = await request.json();
-    ordererName = body.orderer_name?.toString().trim();
-    turnstileToken = body.turnstileToken?.toString(); // Extract token
-
-    if (!ordererName) {
-        console.log("API Error: Missing or empty orderer_name in request body.");
-        return jsonErrorResponse(400, "Bad Request: Orderer name is required.");
-    }
-    if (!turnstileToken) {
-        console.log("API Error: Missing turnstileToken in request body.");
-        return jsonErrorResponse(400, "Bad Request: CAPTCHA token is missing.");
-    }
-  } catch (error) {
-    console.log("API Error: Invalid JSON body received.");
-    return jsonErrorResponse(400, "Bad Request: Invalid JSON body.");
+    formData = await request.formData();
+  } catch (error: any) {
+    console.error("API Error: Failed to parse FormData.", error);
+    return jsonErrorResponse(400, "Bad Request: Invalid form data.");
   }
-  // ---
 
-  // --- Turnstile Verification (using the new utility) ---
+  // --- Data Extraction from FormData ---
+  const ordererName = formData.get("orderer_name")?.toString().trim();
+  const phone = formData.get("phone")?.toString().trim();
+  const packageSliderValue = formData.get("package_tier_value")?.toString(); // e.g., "1", "2"
+  const isDisadvantaged = formData.get("is_disadvantaged") === "on"; // Checkbox value is 'on' when checked
+  const isSchool = formData.get("is_school") === "on";
+  const turnstileToken = formData.get("cf-turnstile-response")?.toString();
+  const orderFiles = formData.getAll("order_files") as File[]; // Array of File objects
+  const certificateFile = formData.get("certificate_file") as File | null; // Single File or null
+
+  // --- Basic Validation ---
+  if (!ordererName) {
+    return jsonErrorResponse(400, "Bad Request: Orderer name is required.");
+  }
+  if (!packageSliderValue) {
+    return jsonErrorResponse(400, "Bad Request: Package selection is required.");
+  }
+  if (!turnstileToken) {
+    return jsonErrorResponse(400, "Bad Request: CAPTCHA token is missing.");
+  }
+  if (!orderFiles || orderFiles.length === 0 || orderFiles.some(f => f.size === 0)) {
+     return jsonErrorResponse(400, "Bad Request: At least one main document file is required.");
+  }
+  if (isDisadvantaged && (!certificateFile || certificateFile.size === 0)) {
+     return jsonErrorResponse(400, "Bad Request: Certificate of indigence is required when economic disadvantage is checked.");
+  }
+  if (!isDisadvantaged && certificateFile && certificateFile.size > 0) {
+      console.warn("API Warning: Certificate file provided but disadvantage checkbox not checked. Ignoring certificate.");
+      // Optionally clear certificateFile here if strict adherence is needed
+  }
+
+
+  // --- Map Slider Value to Tier Name (Example Mapping) ---
+  const packageTiers: { [key: string]: string } = {
+    "1": "Basic",
+    "2": "Standard",
+    "3": "Premium",
+    // Add more tiers as needed
+  };
+  const packageTier = packageTiers[packageSliderValue];
+  if (!packageTier) {
+      return jsonErrorResponse(400, "Bad Request: Invalid package selection value.");
+  }
+
+
+  // --- Turnstile Verification ---
   try {
-    console.log("API Route: Calling Turnstile verification utility...");
-    // Get client IP (handle potential proxy headers like Netlify's)
+    console.log("API Route: Verifying Turnstile token...");
     const forwardedIp = request.headers.get('x-nf-client-connection-ip');
     const remoteIp = forwardedIp || clientAddress;
-
-    // Call the abstracted verification function
     await verifyTurnstileToken(turnstileToken, remoteIp);
-
     console.log("API Route: Turnstile verification successful.");
-
   } catch (error: any) {
     console.warn("API Route: Turnstile verification failed.", error.message);
-    // Check for specific configuration error
     if (error.message.startsWith("Server configuration error")) {
         return jsonErrorResponse(500, error.message);
     }
-    // Treat other errors as client-side verification failures (403 Forbidden)
     return jsonErrorResponse(403, `CAPTCHA verification failed: ${error.message}`);
   }
-  // ---
 
-  // --- Order Creation (remains the same) ---
+  // --- File Upload Logic (Upload First Strategy) ---
+  const uploadedFilePaths: string[] = [];
+  let certificatePath: string | undefined = undefined;
+  const timestamp = Date.now();
+
   try {
-    console.log(`API Route: Calling createOrder service for user ${userId} with name ${ordererName}`);
-    const newOrder = await createOrder(userId, ordererName);
-    console.log("API Route: Order created successfully:", newOrder.id);
-    return jsonResponse(201, newOrder);
+    console.log(`API Route: Uploading ${orderFiles.length} main document(s)...`);
+    for (const file of orderFiles) {
+        if (file.size === 0) continue; // Skip empty file placeholders if any
+        const sanitizedName = sanitizeFilename(file.name);
+        const randomSuffix = generateRandomSuffix();
+        const filePath = `${userId}/${timestamp}-${randomSuffix}-${sanitizedName}`;
+
+        console.log(`API Route: Uploading ${file.name} to ${filePath}`);
+        const { error: uploadError } = await supabase.storage
+          .from("documents")
+          .upload(filePath, file);
+
+        if (uploadError) {
+            console.error(`API Error: Failed to upload ${file.name}. Error:`, uploadError);
+            // ABORT on first failure of a main document
+            // Note: Files uploaded before this error are now orphaned.
+            return jsonErrorResponse(500, `Server Error: Failed to upload file '${file.name}'. ${uploadError.message}`);
+        }
+        uploadedFilePaths.push(filePath);
+        console.log(`API Route: Successfully uploaded ${file.name}`);
+    }
+
+    // Upload certificate file if applicable
+    if (isDisadvantaged && certificateFile && certificateFile.size > 0) {
+        console.log("API Route: Uploading certificate file...");
+        const sanitizedName = sanitizeFilename(certificateFile.name);
+        const randomSuffix = generateRandomSuffix();
+        const certFilePath = `${userId}/${timestamp}-certificate-${randomSuffix}-${sanitizedName}`;
+
+        console.log(`API Route: Uploading ${certificateFile.name} to ${certFilePath}`);
+        const { error: certUploadError } = await supabase.storage
+            .from("documents")
+            .upload(certFilePath, certificateFile);
+
+        if (certUploadError) {
+             console.error(`API Error: Failed to upload certificate ${certificateFile.name}. Error:`, certUploadError);
+             // Decide: Abort or continue without certificate? Let's abort for consistency.
+             // Note: Main files uploaded before this are now orphaned.
+             return jsonErrorResponse(500, `Server Error: Failed to upload certificate file '${certificateFile.name}'. ${certUploadError.message}`);
+        }
+        certificatePath = certFilePath;
+        console.log(`API Route: Successfully uploaded certificate ${certificateFile.name}`);
+    }
+
+    console.log("API Route: All required file uploads completed successfully.");
 
   } catch (error: any) {
+      // Catch any unexpected errors during the upload loops
+      console.error("API Error: Unexpected error during file upload process.", error);
+      return jsonErrorResponse(500, `Server Error: An unexpected error occurred during file processing. ${error.message}`);
+  }
+
+
+  // --- Database Interaction (Only if all uploads succeeded) ---
+  try {
+    console.log(`API Route: Calling createOrder service for user ${userId} with name ${ordererName}`);
+
+    // Note: pageCount and totalPrice are undefined here as we aren't calculating them yet.
+    const newOrder = await createOrder(
+        userId,
+        ordererName,
+        phone,
+        packageTier,
+        isDisadvantaged,
+        isSchool,
+        uploadedFilePaths,
+        certificatePath,
+        undefined, // pageCount - deferred
+        undefined  // totalPrice - deferred
+    );
+
+    console.log("API Route: Order created successfully in database:", newOrder.id);
+    return jsonResponse(201, newOrder); // Return the created order object
+
+  } catch (error: any) {
+    // Handle errors from the createOrder service (validation, DB errors)
     console.error("API Error (POST /api/orders/create - Service Call):", error.message);
-    // Specific error handling based on service errors (remains the same)
+    // Note: Files are already uploaded and potentially orphaned if DB insert fails.
     if (error.message.startsWith("Validation Error:")) {
         return jsonErrorResponse(400, error.message);
     }
-    // ... other specific service error checks ...
     if (error.message.startsWith("Database Error:")) {
-         return jsonErrorResponse(500, "Failed to create order due to a server database error.");
+         return jsonErrorResponse(500, "Failed to save order details after uploading files.");
     }
-    return jsonErrorResponse(500, "An unexpected server error occurred while creating the order.");
+    // Catch specific DB constraint errors if needed (e.g., duplicate order check)
+    return jsonErrorResponse(500, `An unexpected server error occurred while saving the order: ${error.message}`);
   }
 };
 ```
@@ -1220,46 +1451,63 @@ import { handleSupabaseError } from '../utils/supabaseUtils';
  * Throws an error if validation fails or the Supabase insert operation fails.
  * @param userId - The authenticated user's ID (can be anonymous user ID).
  * @param ordererName - The name provided for the order.
- * @param phone - The phone number provided for the order (optional). // UPDATED DOC
+ * @param phone - Optional phone number.
+ * @param packageTier - Text representation of the selected package.
+ * @param isDisadvantaged - Boolean flag.
+ * @param isSchool - Boolean flag.
+ * @param uploadedFileUrls - Array of paths/URLs for main documents.
+ * @param certificateUrl - Optional path/URL for the certificate.
+ * @param pageCount - Optional page count.
+ * @param totalPrice - Optional total price.
  * @returns The newly created order data.
  */
-// UPDATED: Function signature to accept optional phone
-export async function createOrder(userId: string, ordererName: string, phone?: string): Promise<Order> {
+export async function createOrder(
+    userId: string,
+    ordererName: string,
+    phone: string | undefined,
+    packageTier: string | undefined,
+    isDisadvantaged: boolean,
+    isSchool: boolean,
+    uploadedFileUrls: string[] | undefined,
+    certificateUrl: string | undefined,
+    // Optional fields, calculation deferred
+    pageCount: number | undefined,
+    totalPrice: number | undefined
+): Promise<Order> {
+
     // Basic validation
     if (!userId || !ordererName || ordererName.trim().length === 0) {
         throw new Error("Validation Error: User ID and a non-empty Orderer Name are required to create an order.");
     }
-    // Optional: Add more specific validation for phone format here if needed
 
     const trimmedOrdererName = ordererName.trim();
-    // Trim phone only if it exists, otherwise ensure it's undefined/null
     const trimmedPhone = phone?.trim() || undefined;
     const operationContext = "create order";
 
-    // UPDATED: Logging to include phone
-    console.log(`Service: Creating order for user '${userId}' with name '${trimmedOrdererName}' and phone '${trimmedPhone || 'N/A'}'...`);
+    console.log(`Service: Creating order for user '${userId}' with name '${trimmedOrdererName}', package '${packageTier || 'N/A'}', phone '${trimmedPhone || 'N/A'}'. Disadvantaged: ${isDisadvantaged}, School: ${isSchool}`);
 
-    // Prepare data for insertion, using Partial<Order> for better type checking
-    const insertData: Partial<Order> & { user_id: string; orderer_name: string; status: Order['status'] } = {
+    // Prepare data for insertion based on the Order type
+    const insertData: Partial<Order> & { user_id: string; orderer_name: string; status: Order['status']; is_disadvantaged: boolean; is_school: boolean; } = {
       user_id: userId,
       orderer_name: trimmedOrdererName,
       status: "pending", // Set default status
-      // Intentionally omit other fields unless they have default values to set here
+      is_disadvantaged: isDisadvantaged,
+      is_school: isSchool,
+      // Map optional fields only if they have a value
+      ...(trimmedPhone && { phone: trimmedPhone }),
+      ...(packageTier && { package_tier: packageTier }),
+      ...(uploadedFileUrls && { uploaded_file_urls: uploadedFileUrls }),
+      ...(certificateUrl && { certificate_url: certificateUrl }),
+      ...(pageCount !== undefined && pageCount !== null && { page_count: pageCount }),
+      ...(totalPrice !== undefined && totalPrice !== null && { total_price: totalPrice }),
     };
-
-    // Conditionally add phone to the insert object only if it has a value
-    if (trimmedPhone) {
-      insertData.phone = trimmedPhone;
-    }
-    // Similarly, add other optional fields here if they are passed and have values
 
     console.log("Service: Inserting data:", insertData); // Log the object being sent to Supabase
 
     const { data, error } = await supabase
       .from("orders")
-      // UPDATED: Use the prepared insertData object
       .insert(insertData)
-      .select() // Select all fields defined in the Order type (should now include phone)
+      .select() // Select all fields defined in the Order type
       .single(); // Expecting one row back
 
     // Use the utility function to handle potential errors
@@ -1272,8 +1520,6 @@ export async function createOrder(userId: string, ordererName: string, phone?: s
      }
 
     console.log("Service: Created order successfully with ID:", data.id);
-    // The returned 'data' object from Supabase should include the 'phone' field
-    // if it was successfully inserted according to the .select()
     return data as Order;
 }
 
@@ -1304,15 +1550,18 @@ export interface Order {
   orderer_name: string;
   status: "pending" | "processing" | "completed" | "cancelled"; // Example statuses
   created_at: string; // ISO timestamp string
-  phone?: string | null; // ADDED: Optional phone field
-  // Add any other relevant fields from your orders table based on schema
-  page_count?: number | null;
-  total_price?: number | null; // Assuming bigint maps to number safely for JS
-  package_tier?: string | null;
-  uploaded_file_urls?: any | null; // Use a more specific type if possible
+  phone?: string | null;
+  package_tier?: string | null; // Text representation, e.g., "Basic", "Standard"
+  page_count?: number | null; // Optional for now
+  total_price?: number | null; // Optional for now, Assuming bigint maps to number safely for JS
+  uploaded_file_urls?: string[] | null; // Array of storage paths/URLs for main documents
+  is_disadvantaged: boolean; // ADDED
+  is_school: boolean; // ADDED
+  certificate_url?: string | null; // ADDED: Path/URL for the certificate file
+  // Add any other relevant fields from your orders table
 }
 
-// FormSubmitOptions interface remains unchanged
+// FormSubmitOptions interface remains unchanged - but NOTE it won't be used by order.astro directly
 export interface FormSubmitOptions {
   formElement: HTMLFormElement;
   statusElement: HTMLElement | null;
@@ -1385,7 +1634,7 @@ export function jsonDetailedErrorResponse(status: number, message: string, detai
 // src/utils/auth.ts
 import type { Session } from '@supabase/supabase-js';
 import type { AstroCookies } from 'astro';
-import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from './constants'; // <-- IMPORT ADDED
+import { ACCESS_TOKEN, REFRESH_TOKEN } from './constants'; // <-- IMPORT ADDED
 
 /**
  * Sets the Supabase access and refresh token cookies with consistent security attributes.
@@ -1420,12 +1669,12 @@ export function setAuthCookies(cookies: AstroCookies, session: Session | null | 
   console.log(`Setting auth cookies. Access token maxAge: ${accessTokenMaxAge}s`);
 
   // Use constants for cookie names
-  cookies.set(ACCESS_TOKEN_COOKIE, access_token, { // <-- UPDATED
+  cookies.set(ACCESS_TOKEN, access_token, { // <-- UPDATED
     ...baseCookieOptions,
     maxAge: accessTokenMaxAge,
   });
 
-  cookies.set(REFRESH_TOKEN_COOKIE, refresh_token, { // <-- UPDATED
+  cookies.set(REFRESH_TOKEN, refresh_token, { // <-- UPDATED
     ...baseCookieOptions,
     maxAge: refreshTokenMaxAge,
   });
@@ -1438,8 +1687,8 @@ export function setAuthCookies(cookies: AstroCookies, session: Session | null | 
 export function deleteAuthCookies(cookies: AstroCookies): void {
     console.log("Deleting auth cookies.");
     // Use constants for cookie names
-    cookies.delete(ACCESS_TOKEN_COOKIE, { path: "/" }); // <-- UPDATED
-    cookies.delete(REFRESH_TOKEN_COOKIE, { path: "/" }); // <-- UPDATED
+    cookies.delete(ACCESS_TOKEN, { path: "/" }); // <-- UPDATED
+    cookies.delete(REFRESH_TOKEN, { path: "/" }); // <-- UPDATED
 }
 ```
 ---
@@ -1449,19 +1698,47 @@ export function deleteAuthCookies(cookies: AstroCookies): void {
 // src/constants.ts
 
 // Cookie Names
-export const ACCESS_TOKEN_COOKIE = "sb-access-token";
-export const REFRESH_TOKEN_COOKIE = "sb-refresh-token";
+export const ACCESS_TOKEN = "sb-access-token";
+export const REFRESH_TOKEN = "sb-refresh-token";
 
 // API Paths
-export const AUTH_CALLBACK_PATH = "/api/auth/callback";
+export const CALLBACK_PATH = "/api/auth/callback";
 
 // External Services Endpoints
-export const TURNSTILE_VERIFY_ENDPOINT = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
+export const TURNSTILE_VERIFY = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
 
 // Add other constants here as needed, e.g.:
 // export const PROTECTED_PATHS = ["/dashboard"];
 // export const REDIRECT_PATHS = ["/signin"];
 // export const PROTECTED_API_PATHS = ["/api/guestbook", "/api/orders/create"];
+```
+---
+
+`src/utils/filenameUtils.ts`:
+```
+export function sanitizeFilename(filename: string): string {
+    // 1. Replace known problematic characters (add more as needed)
+    let sanitized = filename.replace(/[\s<>:"/\\|?*]+/g, '_');
+    // 2. Remove leading/trailing underscores/dots
+    sanitized = sanitized.replace(/^[_.]+|[_.]+$/g, '');
+    // 3. Limit length (optional)
+    const maxLength = 100;
+    if (sanitized.length > maxLength) {
+      const extDotIndex = sanitized.lastIndexOf('.');
+      if (extDotIndex > 0) {
+        const name = sanitized.substring(0, extDotIndex);
+        const ext = sanitized.substring(extDotIndex);
+        sanitized = name.substring(0, maxLength - ext.length) + ext;
+      } else {
+        sanitized = sanitized.substring(0, maxLength);
+      }
+    }
+    // 4. Handle empty filenames after sanitization
+    if (!sanitized) {
+      return 'untitled';
+    }
+    return sanitized;
+  }
 ```
 ---
 
@@ -1504,7 +1781,7 @@ export function handleSupabaseError(error: PostgrestError | null | undefined, co
 `src/utils/turnstile.ts`:
 ```
 // src/utils/turnstile.ts
-import { TURNSTILE_VERIFY_ENDPOINT } from './constants'; // Assuming you move the constant here
+import { TURNSTILE_VERIFY } from './constants'; // Assuming you move the constant here
 import { jsonErrorResponse } from './apiResponse'; // Or just throw errors
 
 const TURNSTILE_SECRET_KEY = import.meta.env.TURNSTILE_SECRET_KEY;
@@ -1541,7 +1818,7 @@ export async function verifyTurnstileToken(token: string, remoteIp?: string): Pr
     }
 
     try {
-        const verifyResponse = await fetch(TURNSTILE_VERIFY_ENDPOINT, {
+        const verifyResponse = await fetch(TURNSTILE_VERIFY, {
             method: 'POST',
             body: verifyPayload,
         });

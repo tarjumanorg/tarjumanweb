@@ -1,14 +1,14 @@
 import type { APIRoute } from "astro";
 import { supabase } from "../../../lib/supabase";
 import type { Provider } from "@supabase/supabase-js";
-import { AUTH_CALLBACK_PATH } from "../../../utils/constants";
+import { CALLBACK_PATH } from "../../../utils/constants";
 import { jsonErrorResponse } from '../../../utils/apiResponse'; // <-- IMPORT ADDED
 
 export const POST: APIRoute = async ({ request, cookies, redirect, url }) => {
   const formData = await request.formData();
   const provider = formData.get("provider")?.toString();
 
-  const redirectUrl = `${url.origin}${AUTH_CALLBACK_PATH}`;
+  const redirectUrl = `${url.origin}${CALLBACK_PATH}`;
 
   if (provider === "google") {
     const { data, error } = await supabase.auth.signInWithOAuth({

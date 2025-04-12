@@ -1,5 +1,5 @@
 // src/utils/turnstile.ts
-import { TURNSTILE_VERIFY_ENDPOINT } from './constants'; // Assuming you move the constant here
+import { TURNSTILE_VERIFY } from './constants'; // Assuming you move the constant here
 import { jsonErrorResponse } from './apiResponse'; // Or just throw errors
 
 const TURNSTILE_SECRET_KEY = import.meta.env.TURNSTILE_SECRET_KEY;
@@ -36,7 +36,7 @@ export async function verifyTurnstileToken(token: string, remoteIp?: string): Pr
     }
 
     try {
-        const verifyResponse = await fetch(TURNSTILE_VERIFY_ENDPOINT, {
+        const verifyResponse = await fetch(TURNSTILE_VERIFY, {
             method: 'POST',
             body: verifyPayload,
         });

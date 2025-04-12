@@ -4,12 +4,12 @@ import { supabase } from "../../../lib/supabase";
 import { setAuthCookies } from '../../../utils/auth';
 import { jsonResponse, jsonErrorResponse } from '../../../utils/apiResponse'; // <-- IMPORT ADDED
 // Using constants for cookie names
-import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from '../../../utils/constants';
+import { ACCESS_TOKEN, REFRESH_TOKEN } from '../../../utils/constants';
 
 export const POST: APIRoute = async ({ cookies }) => {
   // Check for *existing*, *valid* tokens before attempting a new anonymous sign-in.
-  const existingAccessToken = cookies.get(ACCESS_TOKEN_COOKIE);
-  const existingRefreshToken = cookies.get(REFRESH_TOKEN_COOKIE);
+  const existingAccessToken = cookies.get(ACCESS_TOKEN);
+  const existingRefreshToken = cookies.get(REFRESH_TOKEN);
 
   if (existingAccessToken?.value && existingRefreshToken?.value) {
      console.log("Anonymous Route: Found existing tokens. Verifying session...");

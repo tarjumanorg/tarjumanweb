@@ -1,7 +1,7 @@
 // src/utils/auth.ts
 import type { Session } from '@supabase/supabase-js';
 import type { AstroCookies } from 'astro';
-import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from './constants'; // <-- IMPORT ADDED
+import { ACCESS_TOKEN, REFRESH_TOKEN } from './constants'; // <-- IMPORT ADDED
 
 /**
  * Sets the Supabase access and refresh token cookies with consistent security attributes.
@@ -36,12 +36,12 @@ export function setAuthCookies(cookies: AstroCookies, session: Session | null | 
   console.log(`Setting auth cookies. Access token maxAge: ${accessTokenMaxAge}s`);
 
   // Use constants for cookie names
-  cookies.set(ACCESS_TOKEN_COOKIE, access_token, { // <-- UPDATED
+  cookies.set(ACCESS_TOKEN, access_token, { // <-- UPDATED
     ...baseCookieOptions,
     maxAge: accessTokenMaxAge,
   });
 
-  cookies.set(REFRESH_TOKEN_COOKIE, refresh_token, { // <-- UPDATED
+  cookies.set(REFRESH_TOKEN, refresh_token, { // <-- UPDATED
     ...baseCookieOptions,
     maxAge: refreshTokenMaxAge,
   });
@@ -54,6 +54,6 @@ export function setAuthCookies(cookies: AstroCookies, session: Session | null | 
 export function deleteAuthCookies(cookies: AstroCookies): void {
     console.log("Deleting auth cookies.");
     // Use constants for cookie names
-    cookies.delete(ACCESS_TOKEN_COOKIE, { path: "/" }); // <-- UPDATED
-    cookies.delete(REFRESH_TOKEN_COOKIE, { path: "/" }); // <-- UPDATED
+    cookies.delete(ACCESS_TOKEN, { path: "/" }); // <-- UPDATED
+    cookies.delete(REFRESH_TOKEN, { path: "/" }); // <-- UPDATED
 }
