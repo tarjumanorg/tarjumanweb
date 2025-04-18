@@ -1,16 +1,14 @@
 ---
-
 import AdminLayout from "../../../layouts/AdminLayout.astro";
 import type { Order } from "../../../types/types";
+import { formatDate } from "../../../utils/dateUtils"; // Import formatDate utility
 
 let orders: Order[] = [];
 let errorMessage: string | null = null;
 
 try {
-
   const response = await fetch(`${Astro.url.origin}/api/admin/orders`, {
      headers: {
-
          'Cookie': Astro.request.headers.get('cookie') || ''
      }
   });
@@ -23,19 +21,13 @@ try {
 
 } catch (e: any) {
    console.error("Error fetching admin orders:", e);
-   errorMessage = e.message || "An unexpected error occurred.";
-
+   // Provide a more user-friendly error message on the page
    errorMessage = "Could not load orders. Please check server logs or try again later.";
+   // Optionally keep the technical message for logs:
+   // errorMessage = e.message || "An unexpected error occurred.";
 }
 
-const formatDate = (dateString: string | null | undefined) => {
-    if (!dateString) return 'N/A';
-    try {
-        return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(dateString));
-    } catch {
-        return dateString; 
-    }
-}
+// No longer need local formatDate definition
 ---
 
 <AdminLayout title="Manage Orders">
@@ -60,7 +52,7 @@ const formatDate = (dateString: string | null | undefined) => {
         {orders.map((order) => (
           <tr>
             <td>{order.id}</td>
-            <td>{formatDate(order.created_at)}</td>
+            <td>{formatDate(order.created_at)}</td> {/* Use imported function */}
             <td>{order.orderer_name}</td>
             <td>{order.status || 'N/A'}</td>
             <td>{order.package_tier || 'N/A'}</td>

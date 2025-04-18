@@ -1,20 +1,13 @@
 ---
 import AdminLayout from "../../../layouts/AdminLayout.astro";
-
 import type { Order } from "../../../types/types";
+import { formatDate } from "../../../utils/dateUtils"; // Import formatDate utility
+import type { ApiOrderResponse, SignedFileInfo } from "../../../utils/storageUtils"; // Import shared types
 
-const formatDate = (dateString: string | null | undefined) => {
-
-    if (!dateString) return 'N/A';
-    try {
-        return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(dateString));
-    } catch {
-        return dateString; 
-    }
-}
+// No longer need local formatDate definition
 
 const { orderId } = Astro.params;
-let order: any = null; 
+let order: ApiOrderResponse | null = null; // Use the enriched type
 let errorMessage: string | null = null;
 let orderIdNum: number | null = null;
 
@@ -35,8 +28,12 @@ if (!orderId || isNaN(Number(orderId))) {
             errorMessage = `Failed to fetch order details: ${response.status} - ${errorData.error || 'Unknown API error'}`;
             if (response.status === 404) errorMessage = `Order with ID ${orderIdNum} not found.`;
             else if (response.status === 401 || response.status === 403) errorMessage = "Unauthorized or Forbidden.";
+            else {
+                // Generic error for other statuses
+                errorMessage = `Failed to load order details (${response.status}). Please try again later.`;
+            }
         } else {
-            order = await response.json(); 
+            order = await response.json() as ApiOrderResponse; // Cast to the correct type
             console.log(`Admin Detail Page: Successfully fetched order ${orderIdNum} with file info.`);
         }
 
@@ -45,7 +42,6 @@ if (!orderId || isNaN(Number(orderId))) {
         errorMessage = `An unexpected error occurred while fetching order details: ${e.message}`;
     }
 }
-
 ---
 
 <AdminLayout title={order ? `Order #${order.id} Details` : 'Order Details'}>
@@ -55,12 +51,12 @@ if (!orderId || isNaN(Number(orderId))) {
 
   {order && orderIdNum && (
     <div class="order-details-grid">
-      {}
+      {/* Order Information Section */}
       <section class="order-info">
         <h2>Order Information</h2>
-        {}
+        {/* Basic Details */}
         <p><strong>Order ID:</strong> {order.id}</p>
-        <p><strong>Created At:</strong> {formatDate(order.created_at)}</p>
+        <p><strong>Created At:</strong> {formatDate(order.created_at)}</p> {/* Use imported function */}
         <p><strong>User ID:</strong> {order.user_id}</p>
         <p><strong>Orderer Name:</strong> {order.orderer_name}</p>
         <p><strong>Phone:</strong> {order.phone || 'N/A'}</p>
@@ -68,12 +64,13 @@ if (!orderId || isNaN(Number(orderId))) {
         <p><strong>Is Disadvantaged:</strong> {order.is_disadvantaged ? 'Yes' : 'No'}</p>
         <p><strong>Is School:</strong> {order.is_school ? 'Yes' : 'No'}</p>
 
+        {/* Certificate File */}
         <p><strong>Certificate:</strong>
-            {order.certificate_info && order.certificate_info.signedUrl ? (
+            {order.certificate_info?.signedUrl ? (
                 <a href={order.certificate_info.signedUrl} target="_blank" rel="noopener noreferrer">
                     {order.certificate_info.filename || 'Certificate File'}
                 </a>
-            ) : order.certificate_info && order.certificate_info.filename ? (
+            ) : order.certificate_info?.filename ? (
                 <span>{order.certificate_info.filename} (Link Error)</span>
             ) : (
                 'N/A'
@@ -83,29 +80,33 @@ if (!orderId || isNaN(Number(orderId))) {
         <p><strong>Uploaded Original Files:</strong></p>
         {order.uploaded_files_info && Array.isArray(order.uploaded_files_info) && order.uploaded_files_info.length > 0 ? (
             <ul>
-            {order.uploaded_files_info.map((fileInfo: any, index: number) => (
-                <li>
-                    {fileInfo.signedUrl ? (
-                        <a href={fileInfo.signedUrl} target="_blank" rel="noopener noreferrer">
-                            {fileInfo.filename || `File ${index + 1}`}
-                        </a>
-                    ) : (
-                        <span>{fileInfo.filename || `File ${index + 1}`} (Link Error)</span>
-                    )}
-                </li>
+            {order.uploaded_files_info.map((fileInfo, index) => (
+                 fileInfo ? (
+                    <li>
+                        {fileInfo.signedUrl ? (
+                            <a href={fileInfo.signedUrl} target="_blank" rel="noopener noreferrer">
+                                {fileInfo.filename || `File ${index + 1}`}
+                            </a>
+                        ) : (
+                            <span>{fileInfo.filename || `File ${index + 1}`} (Link Error)</span>
+                        )}
+                    </li>
+                ) : (
+                    <li>File {index + 1} (Error generating link)</li>
+                )
             ))}
             </ul>
         ) : (
-          <p>No original files uploaded.</p>
+          <p>No original files uploaded or links could not be generated.</p>
         )}
 
         <p><strong>Current Translated File:</strong>
             <span id="translated-file-link-container">
-                 {order.translated_file_info && order.translated_file_info.signedUrl ? (
+                 {order.translated_file_info?.signedUrl ? (
                     <a href={order.translated_file_info.signedUrl} target="_blank" rel="noopener noreferrer" data-translated-link>
                         {order.translated_file_info.filename || 'Translated File'}
                     </a>
-                 ) : order.translated_file_info && order.translated_file_info.filename ? (
+                 ) : order.translated_file_info?.filename ? (
                     <span data-translated-link>{order.translated_file_info.filename} (Link Error)</span>
                  ) : (
                     <span data-translated-link>None</span>
@@ -114,37 +115,39 @@ if (!orderId || isNaN(Number(orderId))) {
         </p>
       </section>
 
-      {}
+      {/* Order Update Section */}
       <section class="order-update">
         <h2>Update Order</h2>
         <form data-update-form data-order-id={orderIdNum}>
-          {}
+           {/* Status Dropdown */}
            <div class="form-group">
             <label for="status">Status:</label>
             <select id="status" name="status">
-              {}
+              {/* Ensure correct 'selected' logic based on order.status */}
               <option value="pending" selected={order.status === 'pending'}>Pending</option>
               <option value="processing" selected={order.status === 'processing'}>Processing</option>
               <option value="completed" selected={order.status === 'completed'}>Completed</option>
               <option value="cancelled" selected={order.status === 'cancelled'}>Cancelled</option>
-              {}
-              <option value="" selected={!order.status || order.status === null}>N/A</option> {}
+              {/* Handle null/undefined status */}
+              <option value="" selected={!order.status}>N/A</option>
             </select>
           </div>
+          {/* Page Count */}
           <div class="form-group">
             <label for="page_count">Page Count:</label>
             <input type="number" id="page_count" name="page_count" value={order.page_count ?? ''} min="0" step="1" />
           </div>
+          {/* Total Price */}
           <div class="form-group">
-            <label for="total_price">Total Price (smallest unit):</label>
+            <label for="total_price">Total Price (smallest unit, e.g., cents):</label>
             <input type="number" id="total_price" name="total_price" value={order.total_price ?? ''} min="0" />
           </div>
           <button type="submit">Update Order</button>
-          <div data-update-status class="status-message"></div>
+          <div data-update-status class="status-message"></div> {/* Status message display */}
         </form>
       </section>
 
-       {}
+       {/* Translated File Upload Section */}
        <section class="order-upload">
         <h2>Upload Translated File</h2>
         <form data-upload-form data-order-id={orderIdNum}>
@@ -153,7 +156,7 @@ if (!orderId || isNaN(Number(orderId))) {
                 <input type="file" id="translated_file" name="translated_file" required />
             </div>
             <button type="submit">Upload Translation</button>
-            <div data-upload-status class="status-message"></div>
+            <div data-upload-status class="status-message"></div> {/* Status message display */}
         </form>
        </section>
     </div>
@@ -161,105 +164,97 @@ if (!orderId || isNaN(Number(orderId))) {
 </AdminLayout>
 
 <script>
-
+    // Import shared types and utility
     import type { Order } from "../../../types/types";
+    import type { SignedFileInfo, ApiOrderResponse as ClientApiOrderResponse } from "../../../utils/storageUtils"; // Use client-specific name if needed
+    import { displayStatus } from "../../../scripts/uiUtils"; // Import displayStatus
 
-    type SignedFileInfo = {
-        path: string;
-        filename: string | null;
-        signedUrl: string | null;
-    } | null; 
-
+    // Define UpdatePayload type locally as it's specific to this form's logic
     type UpdatePayload = {
-        status?: Order['status'] | null; 
+        status?: Order['status'] | null;
         page_count?: number | null;
         total_price?: number | null;
     };
 
-    type ApiOrderResponse = Partial<Order> & {
-        uploaded_files_info?: SignedFileInfo[];
-        certificate_info?: SignedFileInfo;
-        translated_file_info?: SignedFileInfo; 
-    };
+    // No longer need local setStatusMessage definition
 
-    function setStatusMessage(element: HTMLElement | null, message: string, isError = false) { 
-        if (!element) return;
-        element.textContent = message;
-        element.className = `status-message ${isError ? 'status-error' : 'status-success'}`;
-        element.style.display = message ? 'block' : 'none';
-    }
-
-    function updateTranslatedFileDisplay(fileInfo: SignedFileInfo | undefined) { 
+    // Helper to update the translated file link/text
+    function updateTranslatedFileDisplay(fileInfo: SignedFileInfo | undefined | null) { // Accept null
         const container = document.getElementById('translated-file-link-container');
         if (!container) return;
 
-        if (fileInfo && fileInfo.signedUrl && fileInfo.filename) {
+        if (fileInfo?.signedUrl && fileInfo.filename) {
             container.innerHTML = `<a href="${fileInfo.signedUrl}" target="_blank" rel="noopener noreferrer" data-translated-link>${fileInfo.filename}</a>`;
-        } else if (fileInfo && fileInfo.filename) {
-
+        } else if (fileInfo?.filename) {
+            // Has filename but no signed URL (link error)
             container.innerHTML = `<span data-translated-link>${fileInfo.filename} (Link Error)</span>`;
         } else {
-
+            // No file info or no filename
             container.innerHTML = `<span data-translated-link>None</span>`;
         }
     }
 
+    // --- Update Form Logic ---
     const updateForm = document.querySelector('[data-update-form]');
-    const updateStatusEl = document.querySelector('[data-update-status]');
+    const updateStatusEl = document.querySelector('[data-update-status]') as HTMLElement | null; // Cast element
 
     if (updateForm && updateStatusEl) {
         updateForm.addEventListener('submit', async (event) => {
             event.preventDefault();
-            const statusDiv = updateStatusEl as HTMLElement; 
-            setStatusMessage(statusDiv, 'Updating...', false);
+            displayStatus(updateStatusEl, 'Updating...', 'info'); // Use utility
             const orderId = (updateForm as HTMLElement).dataset.orderId;
             if (!orderId) {
-                setStatusMessage(statusDiv, 'Error: Missing order ID.', true);
+                displayStatus(updateStatusEl, 'Error: Missing order ID.', 'error'); // Use utility
                 return;
             }
 
             const formData = new FormData(updateForm as HTMLFormElement);
-            const payload: UpdatePayload = {}; 
+            const payload: UpdatePayload = {};
 
+            // Extract and validate form data
             const status = formData.get('status');
             const pageCountRaw = formData.get('page_count');
             const totalPriceRaw = formData.get('total_price');
 
+            // Status validation
             if (status !== null && status !== undefined) {
                  if (status === "") {
                     payload.status = null;
                  } else if (["pending", "processing", "completed", "cancelled"].includes(status as string)) {
                     payload.status = status as Order['status'];
                  } else {
-                     setStatusMessage(statusDiv, 'Invalid status value selected.', true);
-                     return; 
+                     displayStatus(updateStatusEl, 'Invalid status value selected.', 'error'); // Use utility
+                     return;
                  }
             }
 
+            // Page Count validation
             if (pageCountRaw !== null && pageCountRaw !== '') {
                 const pageCountNum = parseInt(pageCountRaw as string, 10);
-                if (!isNaN(pageCountNum)) payload.page_count = pageCountNum;
+                if (!isNaN(pageCountNum) && pageCountNum >= 0) payload.page_count = pageCountNum;
                 else {
-                    setStatusMessage(statusDiv, 'Invalid page count.', true);
+                    displayStatus(updateStatusEl, 'Invalid page count (must be a non-negative number).', 'error'); // Use utility
                     return;
                 }
             } else if (pageCountRaw === '') {
-                 payload.page_count = null;
+                 payload.page_count = null; // Allow clearing
             }
 
+            // Total Price validation
             if (totalPriceRaw !== null && totalPriceRaw !== '') {
-                 const totalPriceNum = parseInt(totalPriceRaw as string, 10);
-                 if (!isNaN(totalPriceNum)) payload.total_price = totalPriceNum;
+                 const totalPriceNum = parseInt(totalPriceRaw as string, 10); // Use parseInt for whole units
+                 if (!isNaN(totalPriceNum) && totalPriceNum >= 0) payload.total_price = totalPriceNum;
                  else {
-                     setStatusMessage(statusDiv, 'Invalid total price.', true);
+                     displayStatus(updateStatusEl, 'Invalid total price (must be a non-negative number).', 'error'); // Use utility
                      return;
                  }
             } else if (totalPriceRaw === '') {
-                payload.total_price = null;
+                payload.total_price = null; // Allow clearing
             }
 
+            // Check if anything changed
             if (Object.keys(payload).length === 0) {
-                 setStatusMessage(statusDiv, 'No changes detected to update.', false);
+                 displayStatus(updateStatusEl, 'No changes detected to update.', 'info'); // Use utility
                  return;
             }
 
@@ -271,80 +266,81 @@ if (!orderId || isNaN(Number(orderId))) {
                     body: JSON.stringify(payload),
                 });
 
-                const result: ApiOrderResponse = await response.json();
+                const result: ClientApiOrderResponse = await response.json(); // Use client-side type alias
                 if (!response.ok) throw new Error((result as any).error || `HTTP error ${response.status}`);
 
-                setStatusMessage(statusDiv, 'Order updated successfully!', false);
+                displayStatus(updateStatusEl, 'Order updated successfully!', 'success'); // Use utility
 
-                if (result.status !== undefined) (document.getElementById('status') as HTMLSelectElement).value = result.status ?? ''; 
+                // Update form fields with returned data
+                if (result.status !== undefined) (document.getElementById('status') as HTMLSelectElement).value = result.status ?? '';
                 if (result.page_count !== undefined) (document.getElementById('page_count') as HTMLInputElement).value = result.page_count?.toString() ?? '';
                 if (result.total_price !== undefined) (document.getElementById('total_price') as HTMLInputElement).value = result.total_price?.toString() ?? '';
 
-                updateTranslatedFileDisplay(result.translated_file_info); 
+                // Update translated file display based on the response
+                updateTranslatedFileDisplay(result.translated_file_info);
 
-            } catch (error) { 
+            } catch (error) {
                 console.error('Update Error:', error);
                 const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred during update.';
-                setStatusMessage(statusDiv, `Update failed: ${errorMessage}`, true);
+                displayStatus(updateStatusEl, `Update failed: ${errorMessage}`, 'error'); // Use utility
             }
         });
     } else {
-        console.warn('Update form elements not found.');
+        console.warn('Update form elements (form or status div) not found.');
     }
 
+     // --- Upload Form Logic ---
      const uploadForm = document.querySelector('[data-upload-form]');
-     const uploadStatusEl = document.querySelector('[data-upload-status]');
+     const uploadStatusEl = document.querySelector('[data-upload-status]') as HTMLElement | null; // Cast element
      const fileInput = document.getElementById('translated_file') as HTMLInputElement | null;
 
      if (uploadForm && uploadStatusEl && fileInput) {
         uploadForm.addEventListener('submit', async (event) => {
             event.preventDefault();
-            const statusDiv = uploadStatusEl as HTMLElement; 
-            setStatusMessage(statusDiv, 'Uploading...', false);
+            displayStatus(uploadStatusEl, 'Uploading...', 'info'); // Use utility
             const orderId = (uploadForm as HTMLElement).dataset.orderId;
              if (!orderId) {
-                 setStatusMessage(statusDiv, 'Error: Missing order ID.', true);
+                 displayStatus(uploadStatusEl, 'Error: Missing order ID.', 'error'); // Use utility
                  return;
              }
              if (!fileInput.files || fileInput.files.length === 0 || fileInput.files[0].size === 0) {
-                  setStatusMessage(statusDiv, 'Please select a file to upload.', true);
+                  displayStatus(uploadStatusEl, 'Please select a file to upload.', 'error'); // Use utility
                   return;
              }
 
             const file = fileInput.files[0];
             const formData = new FormData();
-            formData.append('translated_file', file);
+            formData.append('translated_file', file); // Name matches API expectation
 
             try {
                  const response = await fetch(`/api/admin/orders/${orderId}/upload`, {
                     method: 'POST',
-                    body: formData,
+                    body: formData, // Send FormData directly
                  });
 
-                 const result: ApiOrderResponse = await response.json();
+                 const result: ClientApiOrderResponse = await response.json(); // Use client-side type alias
                  if (!response.ok) throw new Error((result as any).error || `HTTP error ${response.status}`);
 
-                 setStatusMessage(statusDiv, 'File uploaded and order updated successfully!', false);
+                 displayStatus(uploadStatusEl, 'File uploaded and order updated!', 'success'); // Use utility
 
-                 updateTranslatedFileDisplay(result.translated_file_info); 
+                 // Update the display for the translated file link
+                 updateTranslatedFileDisplay(result.translated_file_info);
 
-                 (uploadForm as HTMLFormElement).reset(); 
+                 (uploadForm as HTMLFormElement).reset(); // Reset the upload form
 
-             } catch (error) { 
+             } catch (error) {
                  console.error('Upload Error:', error);
                  const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred during upload.';
-                 setStatusMessage(statusDiv, `Upload failed: ${errorMessage}`, true);
+                 displayStatus(uploadStatusEl, `Upload failed: ${errorMessage}`, 'error'); // Use utility
              }
         });
      } else {
-         console.warn('Upload form elements not found.');
+         console.warn('Upload form elements (form, status div, or file input) not found.');
      }
 
 </script>
 
-{}
 <style>
-
   .order-details-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
@@ -370,7 +366,7 @@ if (!orderId || isNaN(Number(orderId))) {
   }
   strong {
       display: inline-block;
-      min-width: 120px; 
+      min-width: 120px;
   }
   .form-group {
       margin-bottom: 1rem;
@@ -393,8 +389,8 @@ if (!orderId || isNaN(Number(orderId))) {
       margin-top: 0.2rem;
   }
   input[type="file"] {
-      width: auto; 
-      padding: 0.4rem; 
+      width: auto;
+      padding: 0.4rem;
   }
    button {
       background-color: #007bff;
@@ -403,7 +399,7 @@ if (!orderId || isNaN(Number(orderId))) {
       cursor: pointer;
       transition: background-color 0.2s ease;
       font-weight: bold;
-      padding: 0.75rem 1rem; 
+      padding: 0.75rem 1rem;
    }
    button:hover {
       background-color: #0056b3;
@@ -413,27 +409,40 @@ if (!orderId || isNaN(Number(orderId))) {
       cursor: not-allowed;
    }
 
+   /* Styles for status messages (used by uiUtils.displayStatus) */
    .status-message {
     margin-top: 1rem;
     padding: 0.75rem;
     border-radius: 4px;
-    display: none; 
+    display: none; /* Initially hidden */
     font-weight: bold;
     text-align: center;
+    border: 1px solid transparent; /* Base border */
   }
 
   .status-message.status-success {
     background-color: #d4edda;
     color: #155724;
-    border: 1px solid #c3e6cb;
+    border-color: #c3e6cb; /* Match background */
+    display: block; /* Show when class applied */
   }
 
   .status-message.status-error {
     background-color: #f8d7da;
     color: #721c24;
-    border: 1px solid #f5c6cb;
+    border-color: #f5c6cb; /* Match background */
+    display: block; /* Show when class applied */
   }
-   .error-message { 
+
+  /* Info style (optional, if needed) */
+  .status-message.status-info {
+     background-color: #e2e3e5;
+     color: #383d41;
+     border-color: #d6d8db;
+     display: block; /* Show when class applied */
+  }
+
+   .error-message { /* Style for page-level errors */
       color: #721c24;
       background-color: #f8d7da;
       border: 1px solid #f5c6cb;
@@ -444,10 +453,10 @@ if (!orderId || isNaN(Number(orderId))) {
   ul {
     list-style: disc;
     margin-left: 1.5rem;
-    padding-left: 0; 
+    padding-left: 0;
   }
    li {
-     margin-bottom: 0.5rem; 
+     margin-bottom: 0.5rem;
    }
    a {
      color: #0056b3;
@@ -457,7 +466,7 @@ if (!orderId || isNaN(Number(orderId))) {
      text-decoration: underline;
    }
    span[data-translated-link],
-   span + a[data-translated-link] { 
+   span + a[data-translated-link] { /* For inline display */
         display: inline-block;
    }
 </style>

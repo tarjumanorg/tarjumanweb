@@ -1,20 +1,41 @@
 ---
-
 import Layout from "../layout/Layout.astro";
+import { PACKAGE_MAP } from "../utils/constants";
 
 const title = "Place Your Order";
 const turnstileSiteKey =
   import.meta.env.PUBLIC_TURNSTILE_SITE_KEY || "1x00000000000000000000AA";
+
+const packageMapJson = JSON.stringify(PACKAGE_MAP);
 ---
 
 <Layout title={title}>
   <head>
-    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" defer
-    ></script>
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" defer></script>
     <style>
-      .hidden {
-        display: none;
+      .hidden { display: none; }
+      .checkbox-group { margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; }
+      .checkbox-group input[type="checkbox"] { width: auto; }
+      #certificate-container { margin-left: 1rem; padding-left: 1rem; border-left: 2px solid #eee; }
+      #package-display-container { margin-top: 0.5rem; font-style: italic; color: #555; }
+      small { display: block; margin-top: 0.3rem; font-size: 0.85em; color: #666; }
+      form div { margin-bottom: 1rem; }
+      label { display: block; margin-bottom: 0.3rem; font-weight: bold; }
+      input[type="text"], input[type="tel"], input[type="range"], input[type="file"], button {
+          padding: 0.6rem;
+          border: 1px solid #ccc;
+          border-radius: 3px;
+          width: 100%;
+          box-sizing: border-box;
       }
+      input[type="range"] { padding: 0; }
+      input[type="file"] { width: auto; padding: 0.4rem; }
+      button { background-color: #007bff; color: white; border: none; cursor: pointer; margin-top: 1rem;}
+      button:hover { background-color: #0056b3; }
+      button:disabled { background-color: #ccc; cursor: not-allowed; }
+      #order-status { margin-top: 1rem; padding: 0.5rem; border-radius: 3px; min-height: 1.5em; text-align: center; font-weight: bold;}
+      #order-status[style*="color: red"] { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb;}
+      #order-status[style*="color: green"] { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb;}
     </style>
   </head>
   <main>
@@ -27,6 +48,7 @@ const turnstileSiteKey =
         action="/api/orders/create"
         method="post"
         enctype="multipart/form-data"
+        data-package-map={packageMapJson}
       >
         <div>
           <label for="order-files">Upload Documents:</label>
@@ -36,12 +58,9 @@ const turnstileSiteKey =
             name="order_files"
             multiple
             required
-            accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png"
+            accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.odt,.rtf"
           />
-          <small
-            >You can select multiple files. Allowed types: PDF, DOC, DOCX, TXT,
-            JPG, PNG.</small
-          >
+          <small>You can select multiple files. Allowed types: PDF, DOC(X), ODT, RTF, TXT, JPG, PNG.</small>
         </div>
 
         <div>
@@ -89,31 +108,30 @@ const turnstileSiteKey =
             id="is-disadvantaged"
             name="is_disadvantaged"
           />
-          <label for="is-disadvantaged">I am of Economic Disadvantage</label>
+          <label for="is-disadvantaged">I am requesting consideration for Economic Disadvantage</label>
         </div>
         <div id="certificate-container" class="hidden">
-          <label for="certificate-file">Upload Certificate of Indigence:</label>
+          <label for="certificate-file">Upload Proof (e.g., Certificate of Indigence):</label>
           <input
             type="file"
             id="certificate-file"
             name="certificate_file"
             accept=".pdf,.jpg,.jpeg,.png"
           />
+          <small>Required if economic disadvantage is checked.</small>
         </div>
 
         <div class="checkbox-group">
           <input type="checkbox" id="is-school" name="is_school" />
-          <label for="is-school">We are a school/body</label>
+          <label for="is-school">This order is for a school or organization</label>
         </div>
 
-        <!-- Turnstile Widget -->
         <div style="margin-top: 1.5rem;">
           <label>Verification:</label>
           <div class="cf-turnstile" data-sitekey={turnstileSiteKey}></div>
         </div>
-        <!-- End Turnstile Widget -->
 
-        <div id="order-status" aria-live="polite"></div>
+        <div id="order-status" aria-live="polite" style="min-height: 1.5em;"></div>
 
         <button
           type="submit"
@@ -127,195 +145,4 @@ const turnstileSiteKey =
   </main>
 </Layout>
 
-<script>
-  import { submitOrderForm } from "../scripts/formHandler";
-  import type { OrderFormSubmitOptions } from "../scripts/formHandler";
-
-  const form = document.getElementById("order-form") as HTMLFormElement | null;
-  const orderFilesInput = document.getElementById(
-    "order-files",
-  ) as HTMLInputElement | null;
-  const nameInput = document.getElementById(
-    "orderer-name",
-  ) as HTMLInputElement | null;
-  const phoneInput = document.getElementById(
-    "phone",
-  ) as HTMLInputElement | null;
-  const packageSlider = document.getElementById(
-    "package-slider",
-  ) as HTMLInputElement | null;
-  const packageDisplay = document.getElementById(
-    "selected-package-display",
-  ) as HTMLSpanElement | null;
-  const disadvantageCheckbox = document.getElementById(
-    "is-disadvantaged",
-  ) as HTMLInputElement | null;
-  const certificateContainer = document.getElementById(
-    "certificate-container",
-  ) as HTMLDivElement | null;
-  const certificateInput = document.getElementById(
-    "certificate-file",
-  ) as HTMLInputElement | null;
-  const schoolCheckbox = document.getElementById(
-    "is-school",
-  ) as HTMLInputElement | null;
-  const submitButton = document.getElementById(
-    "submit-order-button",
-  ) as HTMLButtonElement | null;
-  const statusDiv = document.getElementById(
-    "order-status",
-  ) as HTMLElement | null;
-
-  const packageMap: { [key: string]: string } = {
-    "1": "Basic",
-    "2": "Standard",
-    "3": "Premium",
-  };
-
-  if (
-    form &&
-    orderFilesInput &&
-    nameInput &&
-    phoneInput &&
-    packageSlider &&
-    packageDisplay &&
-    disadvantageCheckbox &&
-    certificateContainer &&
-    certificateInput &&
-    schoolCheckbox &&
-    submitButton &&
-    statusDiv
-  ) {
-
-    packageSlider.addEventListener("input", () => {
-      const selectedValue = packageSlider.value;
-      packageDisplay.textContent = packageMap[selectedValue] || "Unknown";
-    });
-
-    disadvantageCheckbox.addEventListener("change", () => {
-      if (disadvantageCheckbox.checked) {
-        certificateContainer.classList.remove("hidden");
-        certificateInput.required = true;
-      } else {
-        certificateContainer.classList.add("hidden");
-        certificateInput.required = false;
-        certificateInput.value = "";
-      }
-    });
-
-    form.addEventListener("submit", async (event) => {
-      event.preventDefault(); 
-
-      if (
-        !orderFilesInput.files ||
-        orderFilesInput.files.length === 0 ||
-        Array.from(orderFilesInput.files).every((f) => f.size === 0)
-      ) {
-        statusDiv.textContent = "Please select at least one document file.";
-        statusDiv.style.color = "red";
-        if (orderFilesInput) {
-          orderFilesInput.focus();
-        }
-        return;
-      }
-      if (
-        disadvantageCheckbox.checked &&
-        (!certificateInput.files ||
-          certificateInput.files.length === 0 ||
-          certificateInput.files[0].size === 0)
-      ) {
-        statusDiv.textContent = "Please upload the certificate of indigence.";
-        statusDiv.style.color = "red";
-        if (certificateInput) {
-          certificateInput.focus();
-        }
-        return;
-      }
-
-      if (!nameInput.value.trim()) {
-        statusDiv.textContent = "Please enter your name.";
-        statusDiv.style.color = "red";
-        if (nameInput) {
-          nameInput.focus();
-        }
-        return;
-      }
-      if (!phoneInput.value.trim()) {
-        statusDiv.textContent = "Please enter your phone number.";
-        statusDiv.style.color = "red";
-        if (phoneInput) {
-          phoneInput.focus();
-        }
-        return;
-      }
-
-      const onSuccessHandler = (data: any, formElement: HTMLFormElement) => {
-        if (statusDiv) {
-          statusDiv.textContent = `Order submitted successfully! Order ID: ${data?.id || "[Unknown ID]"}`;
-          statusDiv.style.color = "green";
-        }
-        formElement.reset();
-        if (packageSlider && packageDisplay) {
-          packageDisplay.textContent =
-            packageMap[packageSlider.value] || "Unknown";
-        }
-        if (certificateContainer && certificateInput) {
-          certificateContainer.classList.add("hidden");
-          certificateInput.required = false;
-        }
-        setTimeout(() => {
-          if (statusDiv) statusDiv.textContent = "";
-        }, 8000);
-      };
-
-      const onErrorHandler = (
-        error: Error,
-        statusElement: HTMLElement | null,
-      ) => {
-        if (statusElement) {
-          statusElement.textContent = `Error: ${error.message || "An unexpected error occurred."}`;
-          statusElement.style.color = "red";
-        }
-      };
-
-      const options: OrderFormSubmitOptions = {
-        formElement: form,
-        statusElement: statusDiv,
-        submitButton: submitButton,
-        onSuccess: onSuccessHandler,
-        onError: onErrorHandler,
-
-      };
-
-      await submitOrderForm(options);
-    });
-  } else {
-    console.error(
-      "Could not find all required elements for the order form script. Check element IDs.",
-      {
-        form,
-        orderFilesInput,
-        nameInput,
-        phoneInput,
-        packageSlider,
-        packageDisplay,
-        disadvantageCheckbox,
-        certificateContainer,
-        certificateInput,
-        schoolCheckbox,
-        submitButton,
-        statusDiv,
-      },
-    );
-    const errorDisplay = document.getElementById("order-status");
-    if (errorDisplay) {
-      errorDisplay.textContent =
-        "Error initializing the order form. Please refresh the page.";
-      errorDisplay.style.color = "red";
-    } else if (statusDiv) {
-      statusDiv.textContent =
-        "Error initializing the order form. Please refresh the page.";
-      statusDiv.style.color = "red";
-    }
-  }
-</script>
+<script src="../scripts/orderFormClient.ts"></script>
