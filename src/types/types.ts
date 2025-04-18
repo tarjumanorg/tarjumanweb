@@ -21,13 +21,14 @@ export interface Order {
   page_count?: number | null; // Optional for now
   total_price?: number | null; // Optional for now, Assuming bigint maps to number safely for JS
   uploaded_file_urls?: string[] | null; // Array of storage paths/URLs for main documents
-  is_disadvantaged: boolean; // ADDED
-  is_school: boolean; // ADDED
-  certificate_url?: string | null; // ADDED: Path/URL for the certificate file
+  is_disadvantaged: boolean;
+  is_school: boolean;
+  certificate_url?: string | null;
+  translated_file_url?: string | null; // <-- ADD THIS LINE
   // Add any other relevant fields from your orders table
 }
 
-// FormSubmitOptions interface remains unchanged - but NOTE it won't be used by order.astro directly
+// FormSubmitOptions interface remains unchanged
 export interface FormSubmitOptions {
   formElement: HTMLFormElement;
   statusElement: HTMLElement | null;

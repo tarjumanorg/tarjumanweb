@@ -1,0 +1,78 @@
+---
+// src/pages/admin/orders/index.astro
+import AdminLayout from "../../../layouts/AdminLayout.astro";
+import type { Order } from "../../../types/types";
+
+let orders: Order[] = [];
+let errorMessage: string | null = null;
+
+try {
+  // Make API call server-side to fetch orders
+  // Note: Using Astro.url.origin ensures correct host in SSR/prod
+  const response = await fetch(`${Astro.url.origin}/api/admin/orders`, {
+     headers: {
+         // Forward cookies from the incoming request to the API route
+         // This is crucial for the API route to authenticate the admin user
+         'Cookie': Astro.request.headers.get('cookie') || ''
+     }
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ error: `HTTP error ${response.status}` }));
+    throw new Error(errorData.error || `Failed to fetch orders: ${response.status}`);
+  }
+  orders = await response.json();
+
+} catch (e: any) {
+   console.error("Error fetching admin orders:", e);
+   errorMessage = e.message || "An unexpected error occurred.";
+   // Don't expose detailed errors potentially containing sensitive info to client
+   errorMessage = "Could not load orders. Please check server logs or try again later.";
+}
+
+const formatDate = (dateString: string | null | undefined) => {
+    if (!dateString) return 'N/A';
+    try {
+        return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(dateString));
+    } catch {
+        return dateString; // Fallback
+    }
+}
+---
+
+<AdminLayout title="Manage Orders">
+  {errorMessage && <p style="color: red;">Error: {errorMessage}</p>}
+
+  {orders.length === 0 && !errorMessage ? (
+    <p>No orders found.</p>
+  ) : (
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Created</th>
+          <th>Orderer Name</th>
+          <th>Status</th>
+          <th>Package</th>
+          <th>User ID</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {orders.map((order) => (
+          <tr>
+            <td>{order.id}</td>
+            <td>{formatDate(order.created_at)}</td>
+            <td>{order.orderer_name}</td>
+            <td>{order.status || 'N/A'}</td>
+            <td>{order.package_tier || 'N/A'}</td>
+            <td>{order.user_id}</td>
+            <td>
+              <a href={`/admin/orders/${order.id}`}>Details</a>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )}
+</AdminLayout>

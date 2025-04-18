@@ -1,0 +1,276 @@
+---
+// src/pages/admin/orders/[orderId].astro
+import AdminLayout from "../../../layouts/AdminLayout.astro";
+import type { Order } from "../../../types/types";
+
+const { orderId } = Astro.params;
+let order: Order | null = null;
+let errorMessage: string | null = null;
+
+if (!orderId || isNaN(Number(orderId))) {
+     errorMessage = "Invalid Order ID provided in URL.";
+     // Could also redirect: return Astro.redirect('/admin/orders?error=Invalid+ID');
+} else {
+    try {
+        const response = await fetch(`${Astro.url.origin}/api/admin/orders/${orderId}`, {
+             headers: { 'Cookie': Astro.request.headers.get('cookie') || '' }
+        });
+         if (response.status === 404) {
+            errorMessage = `Order with ID ${orderId} not found.`;
+         } else if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ error: `HTTP error ${response.status}` }));
+            throw new Error(errorData.error || `Failed to fetch order details: ${response.status}`);
+         } else {
+            order = await response.json();
+         }
+    } catch (e: any) {
+        console.error(`Error fetching admin order ${orderId}:`, e);
+        errorMessage = `Could not load order details. ${e.message || "Check server logs."}`;
+    }
+}
+
+const formatDate = (dateString: string | null | undefined) => {
+     if (!dateString) return 'N/A';
+     return new Intl.DateTimeFormat('en-US', { dateStyle: 'long', timeStyle: 'medium' }).format(new Date(dateString));
+}
+const formatBoolean = (val: boolean | null | undefined) => val ? 'Yes' : 'No';
+const formatPrice = (price: number | null | undefined) => {
+    if (price === null || price === undefined) return 'N/A';
+    // Assuming price is stored in smallest unit (e.g., cents) if it needs conversion, otherwise format directly.
+    // Example: return `$${(price / 100).toFixed(2)}`;
+    return price.toLocaleString(); // Basic formatting
+}
+const getStorageUrl = (path: string | null | undefined) => {
+    if (!path) return null;
+    // Construct the public URL based on your Supabase project ref
+    // IMPORTANT: Replace YOUR_PROJECT_REF below
+    const supabaseUrl = import.meta.env.PUBLIC_SUPABASE_URL;
+    if (!supabaseUrl) return '#error-missing-supabase-url';
+    // Basic construction, might need adjustment if using signed URLs etc.
+    return `${supabaseUrl}/storage/v1/object/public/${path}`;
+}
+const validStatuses: Order['status'][] = ["pending", "processing", "completed", "cancelled"];
+---
+
+<AdminLayout title={order ? `Order Details #${order.id}` : (errorMessage ? 'Error' : 'Loading...')}>
+
+  {errorMessage && <p class="status-message status-error">Error: {errorMessage}</p>}
+
+  {order && (
+    <div>
+      <h2>Order Summary</h2>
+      <p><strong>Order ID:</strong> {order.id}</p>
+      <p><strong>User ID:</strong> {order.user_id}</p>
+      <p><strong>Orderer Name:</strong> {order.orderer_name}</p>
+      <p><strong>Phone:</strong> {order.phone || 'N/A'}</p>
+      <p><strong>Created At:</strong> {formatDate(order.created_at)}</p>
+      <p><strong>Package:</strong> {order.package_tier || 'N/A'}</p>
+      <p><strong>Is Disadvantaged:</strong> {formatBoolean(order.is_disadvantaged)}</p>
+      <p><strong>Is School/Body:</strong> {formatBoolean(order.is_school)}</p>
+
+      <h3>Documents</h3>
+      <ul>
+        {order.uploaded_file_urls?.map(url => {
+            const fullUrl = getStorageUrl(url);
+            const filename = url.split('/').pop();
+            return <li><a href={fullUrl || '#'} target="_blank" rel="noopener noreferrer">{filename}</a></li>;
+        }) ?? <li>No documents uploaded.</li>}
+      </ul>
+       {order.is_disadvantaged && (
+         <p>
+            <strong>Certificate of Indigence:</strong>
+            {order.certificate_url ? (
+                <a href={getStorageUrl(order.certificate_url) || '#'} target="_blank" rel="noopener noreferrer">
+                   {order.certificate_url.split('/').pop()}
+                </a>
+            ) : 'Not Provided'}
+         </p>
+       )}
+
+      <hr />
+
+      {/* --- Edit Form --- */}
+      <form id="edit-order-form">
+        <h3>Update Order Details</h3>
+         <div id="edit-status" class="status-message" aria-live="polite" style="display: none;"></div>
+
+        <div>
+          <label for="status">Status:</label>
+          <select id="status" name="status">
+            {validStatuses.map(s => (
+                <option value={s} selected={order?.status === s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
+            ))}
+          </select>
+        </div>
+         <div>
+          <label for="page_count">Page Count:</label>
+          <input type="number" id="page_count" name="page_count" value={order.page_count ?? ''} min="0" step="1" />
+        </div>
+         <div>
+          <label for="total_price">Total Price:</label>
+          {/* Assuming price is a whole number, adjust step if needed */}
+          <input type="number" id="total_price" name="total_price" value={order.total_price ?? ''} min="0" step="1" />
+        </div>
+        <button type="submit" id="edit-submit-button">Save Changes</button>
+      </form>
+
+      <hr />
+
+      {/* --- Upload Translated File Form --- */}
+      <form id="upload-translation-form" enctype="multipart/form-data">
+         <h3>Upload Translated Document</h3>
+         <p>
+            <strong>Current Translated File:</strong>
+            {order.translated_file_url ? (
+                <a href={getStorageUrl(order.translated_file_url) || '#'} target="_blank" rel="noopener noreferrer">
+                   {order.translated_file_url.split('/').pop()}
+                </a>
+            ) : 'None'}
+         </p>
+         <div id="upload-status" class="status-message" aria-live="polite" style="display: none;"></div>
+         <div>
+            <label for="translated_file">Select File:</label>
+            <input type="file" id="translated_file" name="translated_file" required accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png" />
+         </div>
+          <button type="submit" id="upload-submit-button">Upload Translation</button>
+      </form>
+    </div>
+  )}
+
+  <script define:vars={{ orderId }}>
+    // --- Edit Order Script ---
+    const editForm = document.getElementById('edit-order-form');
+    const editStatusDiv = document.getElementById('edit-status');
+    const editSubmitButton = document.getElementById('edit-submit-button');
+
+    if (editForm && editStatusDiv && editSubmitButton) {
+        editForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            editSubmitButton.disabled = true;
+            editSubmitButton.textContent = 'Saving...';
+            editStatusDiv.style.display = 'none';
+            editStatusDiv.className = 'status-message'; // Reset class
+
+            const formData = new FormData(editForm);
+            const payload = {
+                status: formData.get('status'),
+                // Convert to number or null
+                page_count: formData.get('page_count') ? Number(formData.get('page_count')) : null,
+                total_price: formData.get('total_price') ? Number(formData.get('total_price')) : null,
+            };
+
+            // Filter out null values if API expects only defined fields
+            Object.keys(payload).forEach(key => {
+                if (payload[key] === null || payload[key] === '') {
+                   // Decide if you want to send null or omit the key
+                   // Sending null might explicitly clear the value in DB
+                   // Omitting leaves it unchanged
+                   // Let's send nulls for now
+                   // delete payload[key];
+                }
+            });
+
+
+            try {
+                const response = await fetch(`/api/admin/orders/${orderId}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || `HTTP Error ${response.status}`);
+                }
+
+                editStatusDiv.textContent = 'Order updated successfully!';
+                editStatusDiv.className = 'status-message status-success';
+                editStatusDiv.style.display = 'block';
+
+                // Optional: Update the displayed values on the page without full reload
+                // document.getElementById('status').value = data.status;
+                // ... etc.
+
+            } catch (error) {
+                console.error("Update error:", error);
+                editStatusDiv.textContent = `Error updating order: ${error.message}`;
+                editStatusDiv.className = 'status-message status-error';
+                editStatusDiv.style.display = 'block';
+            } finally {
+                editSubmitButton.disabled = false;
+                editSubmitButton.textContent = 'Save Changes';
+            }
+        });
+    }
+
+    // --- Upload Translation Script ---
+    const uploadForm = document.getElementById('upload-translation-form');
+    const uploadStatusDiv = document.getElementById('upload-status');
+    const uploadSubmitButton = document.getElementById('upload-submit-button');
+    const fileInput = document.getElementById('translated_file');
+
+    if (uploadForm && uploadStatusDiv && uploadSubmitButton && fileInput) {
+         uploadForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            uploadSubmitButton.disabled = true;
+            uploadSubmitButton.textContent = 'Uploading...';
+            uploadStatusDiv.style.display = 'none';
+            uploadStatusDiv.className = 'status-message'; // Reset class
+
+            const formData = new FormData(uploadForm); // Contains the file
+
+            try {
+                 const response = await fetch(`/api/admin/orders/${orderId}/upload`, {
+                    method: 'POST',
+                    body: formData, // Send FormData directly
+                 });
+
+                 const data = await response.json(); // Expect updated order data
+
+                 if (!response.ok) {
+                    throw new Error(data.error || `HTTP Error ${response.status}`);
+                 }
+
+                 uploadStatusDiv.textContent = 'Translation uploaded successfully!';
+                 uploadStatusDiv.className = 'status-message status-success';
+                 uploadStatusDiv.style.display = 'block';
+                 fileInput.value = ''; // Reset file input
+
+                 // Update the display of the current translated file link dynamically
+                 const linkElement = document.querySelector('#upload-translation-form p a');
+                 const textElement = document.querySelector('#upload-translation-form p strong');
+                 if (linkElement && data.translated_file_url) {
+                     linkElement.href = `${import.meta.env.PUBLIC_SUPABASE_URL}/storage/v1/object/public/${data.translated_file_url}`;
+                     linkElement.textContent = data.translated_file_url.split('/').pop();
+                 } else if (textElement && data.translated_file_url) {
+                     // If there wasn't a link before, create one
+                      textElement.nextSibling.textContent = ' '; // Add space
+                      const newLink = document.createElement('a');
+                      newLink.href = `${import.meta.env.PUBLIC_SUPABASE_URL}/storage/v1/object/public/${data.translated_file_url}`;
+                      newLink.textContent = data.translated_file_url.split('/').pop();
+                      newLink.target = '_blank';
+                      newLink.rel = 'noopener noreferrer';
+                      textElement.parentNode.insertBefore(newLink, textElement.nextSibling.nextSibling);
+                 } else if (linkElement && !data.translated_file_url) {
+                     // If file was removed (e.g., updated to null - though this form doesn't do that)
+                     linkElement.remove();
+                     textElement.nextSibling.textContent = ' None';
+                 } else {
+                     // Fallback if elements not found, just show success message
+                 }
+
+
+            } catch (error) {
+                 console.error("Upload error:", error);
+                 uploadStatusDiv.textContent = `Error uploading file: ${error.message}`;
+                 uploadStatusDiv.className = 'status-message status-error';
+                 uploadStatusDiv.style.display = 'block';
+            } finally {
+                 uploadSubmitButton.disabled = false;
+                 uploadSubmitButton.textContent = 'Upload Translation';
+            }
+         });
+    }
+  </script>
+</AdminLayout>

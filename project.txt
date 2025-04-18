@@ -242,6 +242,76 @@ const canonicalURL = new URL(Astro.url).href;
 ```
 ---
 
+`src/layouts/AdminLayout.astro`:
+```
+---
+// src/layouts/AdminLayout.astro
+interface Props {
+  title: string;
+}
+
+const { title } = Astro.props;
+const siteTitle = "Tarjuman Admin";
+---
+
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="generator" content={Astro.generator} />
+    <title>{title} | {siteTitle}</title>
+    {/* Basic styling - consider a separate CSS file */}
+    <style>
+      body { font-family: sans-serif; margin: 0; }
+      nav { background-color: #333; padding: 1rem; }
+      nav a { color: white; text-decoration: none; margin-right: 1rem; }
+      nav a:hover { text-decoration: underline; }
+      main { padding: 1rem 2rem; }
+      .container { max-width: 1200px; margin: auto; }
+      h1 { border-bottom: 1px solid #eee; padding-bottom: 0.5rem; }
+      table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+      th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+      th { background-color: #f2f2f2; }
+      tr:nth-child(even) { background-color: #f9f9f9; }
+      form { margin-top: 1.5rem; padding: 1rem; border: 1px solid #eee; border-radius: 4px; }
+      form div { margin-bottom: 1rem; }
+      label { display: block; margin-bottom: 0.3rem; font-weight: bold; }
+      input[type="text"], input[type="number"], input[type="file"], select, button {
+        padding: 0.5rem;
+        border: 1px solid #ccc;
+        border-radius: 3px;
+        width: 100%;
+        box-sizing: border-box; /* Include padding in width */
+      }
+       input[type="file"] { width: auto; }
+       button { background-color: #007bff; color: white; border: none; cursor: pointer; }
+       button:hover { background-color: #0056b3; }
+       button:disabled { background-color: #ccc; cursor: not-allowed; }
+      .status-message { margin-top: 1rem; padding: 0.5rem; border-radius: 3px; }
+      .status-success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+      .status-error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    </style>
+  </head>
+  <body>
+    <nav>
+      <div class="container">
+        <a href="/admin"><strong>{siteTitle}</strong></a>
+        <a href="/admin/orders">Manage Orders</a>
+        <a href="/api/auth/signout" style="float: right;">Sign Out</a>
+        <!-- Add other admin links here -->
+      </div>
+    </nav>
+    <main>
+      <div class="container">
+        <h1>{title}</h1>
+        <slot />
+      </div>
+    </main>
+
+
+```
+---
+
 `src/lib/supabase.ts`:
 ```
 // src/lib/supabase.ts
@@ -276,94 +346,146 @@ import { defineMiddleware } from "astro:middleware";
 import { supabase } from "../lib/supabase";
 import { setAuthCookies, deleteAuthCookies } from '../utils/auth';
 import { ACCESS_TOKEN, REFRESH_TOKEN } from '../utils/constants';
+import { jsonErrorResponse } from "../utils/apiResponse"; // Import error response util
 
-// Consider moving these to constants.ts as well if used elsewhere
-// Or import if they are defined there
+// Define path categories
 const protectedPaths = ["/dashboard"];
-const redirectPaths = ["/signin"]; // e.g., signin, register
+const redirectPaths = ["/signin"]; // Paths users are redirected *from* if logged in
 const protectedAPIPaths = ["/api/guestbook", "/api/orders/create"];
 
-function matchesPath(pathname: string, pathsToCheck: string[]): boolean {
+// --- NEW: Admin paths ---
+const adminPaths = ["/admin", "/admin/orders"]; // Add more admin page routes here
+const adminAPIPaths = ["/api/admin/orders"]; // Add more admin API routes here
+
+/**
+ * Checks if the pathname (or its parent) matches any path in the provided list.
+ * Handles base paths and specific subpaths.
+ */
+function matchesPathPrefix(pathname: string, pathsToCheck: string[]): boolean {
   const normalizedPathname = pathname.endsWith('/') && pathname.length > 1
     ? pathname.slice(0, -1)
     : pathname;
-  return pathsToCheck.includes(normalizedPathname);
+  return pathsToCheck.some(prefix => normalizedPathname === prefix || normalizedPathname.startsWith(prefix + '/'));
 }
 
 export const onRequest = defineMiddleware(
-  async ({ locals, url, cookies, redirect }, next) => {
-    // --- 1. Centralized Auth Check ---
+  async ({ locals, url, cookies, redirect, request }, next) => { // Added 'request'
+    const pathname = url.pathname;
+    console.log(`\n--- Middleware Start: ${pathname} ---`);
+
+    // --- 1. Centralized Authentication Check ---
     const accessToken = cookies.get(ACCESS_TOKEN);
     const refreshToken = cookies.get(REFRESH_TOKEN);
-    locals.userId = undefined; // Ensure locals.userId is reset per request
+    locals.userId = undefined;
+    let isAdmin = false; // --- NEW: Track admin status ---
 
-    if (accessToken) {
-      console.log("Middleware: Access token found. Verifying...");
+    if (accessToken?.value) {
+      console.log("Middleware: Access token found. Verifying with Supabase...");
+      // Fetch user data, hoping app_metadata is included
       const { data: { user }, error: getUserError } = await supabase.auth.getUser(accessToken.value);
 
       if (user) {
-        console.log(`Middleware: User ${user.id} verified successfully via access token.`);
+        console.log(`Middleware: User ${user.id} verified via access token.`);
         locals.userId = user.id;
-        // Optional: Refresh session proactively if needed, but getUser is usually sufficient
+        // --- NEW: Check for admin status ---
+        // IMPORTANT: Verify app_metadata exists. It might not be in the default getUser() response depending on JWT claims configuration.
+        // If user.app_metadata is consistently undefined here, you'll need the service_role key approach.
+        if (user.app_metadata && user.app_metadata.is_admin === true) {
+            console.log(`Middleware: User ${user.id} IS an admin.`);
+            isAdmin = true;
+        } else {
+            console.log(`Middleware: User ${user.id} is NOT an admin (app_metadata: ${JSON.stringify(user.app_metadata)})`);
+        }
+        // --- End NEW ---
+
       } else {
-        console.log("Middleware: Access token invalid or expired.", getUserError?.message);
-        if (refreshToken) {
+        console.log("Middleware: Access token invalid/expired.", getUserError?.message);
+        if (refreshToken?.value) {
           console.log("Middleware: Refresh token found. Attempting session refresh...");
-          // Use setSession as it handles refresh internally when access token is provided (even if expired)
           const { data: refreshData, error: refreshError } = await supabase.auth.setSession({
             access_token: accessToken.value,
             refresh_token: refreshToken.value,
           });
 
           if (refreshData?.session && refreshData?.user) {
-            console.log(`Middleware: Session refreshed successfully for user ${refreshData.user.id}. Setting cookies.`);
+            console.log(`Middleware: Session refreshed successfully for user ${refreshData.user.id}. Setting new cookies.`);
             locals.userId = refreshData.user.id;
-            setAuthCookies(cookies, refreshData.session); // Update cookies with new tokens/expiry
+            setAuthCookies(cookies, refreshData.session);
+            // --- NEW: Re-check admin status after refresh ---
+            if (refreshData.user.app_metadata && refreshData.user.app_metadata.is_admin === true) {
+                console.log(`Middleware: Refreshed user ${refreshData.user.id} IS an admin.`);
+                isAdmin = true;
+            } else {
+                console.log(`Middleware: Refreshed user ${refreshData.user.id} is NOT an admin.`);
+            }
+            // --- End NEW ---
           } else {
             console.log("Middleware: Session refresh failed. Deleting auth cookies.", refreshError?.message);
             deleteAuthCookies(cookies);
-            // locals.userId remains undefined
           }
         } else {
-          console.log("Middleware: Invalid access token and no refresh token found. Deleting auth cookies.");
+          console.log("Middleware: Invalid access token and no refresh token. Deleting auth cookies.");
           deleteAuthCookies(cookies);
-          // locals.userId remains undefined
         }
       }
     } else {
        console.log("Middleware: No access token found.");
-       // If only refresh token exists, Supabase client handles refresh on next DB call attempt,
-       // but we can't pre-validate user easily here without access token for getUser.
-       // If access token is missing, treat as unauthenticated for initial checks.
-       // If refresh token exists alone, delete it as it's likely stale without access token.
-       if (refreshToken) {
-           console.log("Middleware: Access token missing but refresh token exists. Deleting stale refresh token.");
-           deleteAuthCookies(cookies); // deleteAuthCookies targets both
+       if (refreshToken?.value) {
+           console.log("Middleware: Access token missing, but refresh token exists. Deleting likely stale refresh token.");
+           deleteAuthCookies(cookies);
        }
     }
 
-    // --- 2. Path-Based Logic (using locals.userId) ---
-    const isProtectedRoute = matchesPath(url.pathname, protectedPaths);
-    const isProtectedAPIRoute = matchesPath(url.pathname, protectedAPIPaths);
-    const isRedirectRoute = matchesPath(url.pathname, redirectPaths);
+    // --- 2. Path-Based Authorization & Redirection Logic ---
+    const isProtectedRoute = matchesPathPrefix(pathname, protectedPaths);
+    const isProtectedAPIRoute = matchesPathPrefix(pathname, protectedAPIPaths);
+    const isRedirectRoute = matchesPathPrefix(pathname, redirectPaths);
+    // --- NEW: Check if it's an admin route ---
+    const isAdminRoute = matchesPathPrefix(pathname, adminPaths);
+    const isAdminAPIRoute = matchesPathPrefix(pathname, adminAPIPaths);
+    // --- End NEW ---
 
-    if (isProtectedRoute && !locals.userId) {
-      console.log(`Middleware: Blocked access to protected route ${url.pathname}. Redirecting to signin.`);
-      return redirect("/signin");
+    // --- NEW: Admin Route Protection ---
+    if ((isAdminRoute || isAdminAPIRoute) && !isAdmin) {
+        if (!locals.userId) {
+            // Not logged in at all, trying to access admin area
+            console.log(`Middleware: Unauthorized anonymous access attempt to admin route ${pathname}. Redirecting to /signin.`);
+            if (isAdminAPIRoute) return jsonErrorResponse(401, "Unauthorized: Authentication required.");
+            return redirect("/signin?message=Admin area requires login&redirect=" + encodeURIComponent(pathname));
+        } else {
+            // Logged in, but not an admin
+            console.log(`Middleware: Forbidden access attempt by non-admin user ${locals.userId} to admin route ${pathname}.`);
+             if (isAdminAPIRoute) return jsonErrorResponse(403, "Forbidden: Administrator privileges required.");
+            // Optional: Redirect to dashboard or show a generic forbidden page
+            // For simplicity, redirecting to dashboard might be less confusing than signin
+             return redirect("/dashboard?message=Forbidden: Admin access required");
+             // Or: return new Response("Forbidden: Admin access required", { status: 403 });
+        }
+    }
+    // --- End NEW ---
+
+    // Block access to protected pages if not logged in (and not an admin route handled above)
+    if (isProtectedRoute && !isAdminRoute && !locals.userId) {
+      console.log(`Middleware: Unauthorized access to protected page ${pathname}. Redirecting to /signin.`);
+      return redirect("/signin?redirect=" + encodeURIComponent(pathname));
     }
 
-    if (isProtectedAPIRoute && !locals.userId) {
-       console.log(`Middleware: Blocked access to protected API route ${url.pathname}. Returning 401.`);
-       return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+    // Block access to protected API routes if not logged in (and not an admin API route handled above)
+    if (isProtectedAPIRoute && !isAdminAPIRoute && !locals.userId) {
+       console.log(`Middleware: Unauthorized access to protected API route ${pathname}. Returning 401.`);
+       return jsonErrorResponse(401, "Unauthorized");
     }
 
-    if (isRedirectRoute && locals.userId) {
-        console.log(`Middleware: User already logged in (User ID: ${locals.userId}). Redirecting from ${url.pathname} to dashboard.`);
+    // Redirect logged-in users away from pages like /signin
+    // Let admins visit /signin if they somehow land there (e.g., to sign in as a different user)
+    if (isRedirectRoute && locals.userId && !isAdmin) {
+        console.log(`Middleware: User ${locals.userId} is already logged in. Redirecting from ${pathname} to /dashboard.`);
         return redirect("/dashboard");
     }
 
-    // --- 3. Proceed if no action taken ---
-    console.log(`Middleware: Allowing request to ${url.pathname}. Authenticated User ID: ${locals.userId ?? 'None'}`);
+    // --- 3. Proceed to the requested page/API endpoint ---
+    console.log(`Middleware: Allowing request to ${pathname}. Auth User ID: ${locals.userId ?? 'None'}. Is Admin: ${isAdmin}`);
+    console.log(`--- Middleware End: ${pathname} ---`);
     return next();
   },
 );
@@ -441,57 +563,20 @@ const title = "Supabase and Astro Demo";
 ```
 ---
 // src/pages/order.astro
-import Layout from "../layout/Layout.astro"; // Adjusted path if needed
-// REMOVED: import { resetTurnstileWidget } from "../../scripts/formHandler"; // Moved to client script
+import Layout from "../layout/Layout.astro";
 
 const title = "Place Your Order";
-// IMPORTANT: Use your *actual* Turnstile Site Key
-const turnstileSiteKey = import.meta.env.PUBLIC_TURNSTILE_SITE_KEY || "1x00000000000000000000AA"; // Fallback for local dev if needed
+const turnstileSiteKey =
+  import.meta.env.PUBLIC_TURNSTILE_SITE_KEY || "1x00000000000000000000AA";
 ---
 
 <Layout title={title}>
   <head>
-    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" defer></script>
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" defer
+    ></script>
     <style>
       .hidden {
         display: none;
-      }
-      label {
-        display: block;
-        margin-top: 0.75rem;
-        margin-bottom: 0.25rem;
-        font-weight: bold;
-      }
-      input[type="text"], input[type="tel"], input[type="file"], input[type="range"] {
-        width: 100%;
-        padding: 0.5em;
-        margin-bottom: 0.5rem;
-        box-sizing: border-box;
-      }
-       .checkbox-group {
-        display: flex;
-        align-items: center;
-        margin-top: 1rem;
-      }
-       .checkbox-group input[type="checkbox"] {
-        margin-right: 0.5em;
-        width: auto; /* Override default width */
-      }
-       .checkbox-group label {
-         margin: 0; /* Override default margin */
-         font-weight: normal;
-       }
-      #package-display-container {
-        margin-top: 0.5rem;
-        font-style: italic;
-        font-weight: bold;
-        min-height: 1.2em; /* Prevent layout shift */
-      }
-      #certificate-container {
-          border-left: 3px solid #eee;
-          padding-left: 1em;
-          margin-left: 1.5em; /* Indent under checkbox */
-          margin-top: 0.5rem;
       }
     </style>
   </head>
@@ -500,8 +585,12 @@ const turnstileSiteKey = import.meta.env.PUBLIC_TURNSTILE_SITE_KEY || "1x0000000
       <h1>{title}</h1>
       <p>Enter your details and upload your documents to start your order.</p>
 
-      <form id="order-form" action="/api/orders/create" method="post" enctype="multipart/form-data">
-
+      <form
+        id="order-form"
+        action="/api/orders/create"
+        method="post"
+        enctype="multipart/form-data"
+      >
         <div>
           <label for="order-files">Upload Documents:</label>
           <input
@@ -510,8 +599,12 @@ const turnstileSiteKey = import.meta.env.PUBLIC_TURNSTILE_SITE_KEY || "1x0000000
             name="order_files"
             multiple
             required
-            accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png" /> {/* Adjust accepted types */}
-          <small>You can select multiple files. Allowed types: PDF, DOC, DOCX, TXT, JPG, PNG.</small>
+            accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png"
+          />
+          <small
+            >You can select multiple files. Allowed types: PDF, DOC, DOCX, TXT,
+            JPG, PNG.</small
+          >
         </div>
 
         <div>
@@ -537,54 +630,57 @@ const turnstileSiteKey = import.meta.env.PUBLIC_TURNSTILE_SITE_KEY || "1x0000000
         </div>
 
         <div>
-            <label for="package-slider">Choose Package:</label>
-            <input type="range" id="package-slider" name="package_tier_value" min="1" max="3" step="1" value="1" required />
-            <div id="package-display-container">
-                Selected Package: <span id="selected-package-display">Basic</span>
-            </div>
+          <label for="package-slider">Choose Package:</label>
+          <input
+            type="range"
+            id="package-slider"
+            name="package_tier_value"
+            min="1"
+            max="3"
+            step="1"
+            value="1"
+            required
+          />
+          <div id="package-display-container">
+            Selected Package: <span id="selected-package-display">Basic</span>
+          </div>
         </div>
 
         <div class="checkbox-group">
-           <input type="checkbox" id="is-disadvantaged" name="is_disadvantaged" />
-           <label for="is-disadvantaged">I am of Economic Disadvantage</label>
+          <input
+            type="checkbox"
+            id="is-disadvantaged"
+            name="is_disadvantaged"
+          />
+          <label for="is-disadvantaged">I am of Economic Disadvantage</label>
         </div>
-        {/* Container for conditional certificate upload */}
         <div id="certificate-container" class="hidden">
-             <label for="certificate-file">Upload Certificate of Indigence:</label>
-             <input
-                type="file"
-                id="certificate-file"
-                name="certificate_file"
-                accept=".pdf,.jpg,.jpeg,.png" /> {/* Adjust accepted types */}
+          <label for="certificate-file">Upload Certificate of Indigence:</label>
+          <input
+            type="file"
+            id="certificate-file"
+            name="certificate_file"
+            accept=".pdf,.jpg,.jpeg,.png"
+          />
         </div>
 
         <div class="checkbox-group">
-            <input type="checkbox" id="is-school" name="is_school" />
-            <label for="is-school">We are a school/body</label>
+          <input type="checkbox" id="is-school" name="is_school" />
+          <label for="is-school">We are a school/body</label>
         </div>
-
 
         <!-- Turnstile Widget -->
         <div style="margin-top: 1.5rem;">
-            <label>Verification:</label>
-            <div
-                class="cf-turnstile"
-                data-sitekey={turnstileSiteKey}
-            ></div>
+          <label>Verification:</label>
+          <div class="cf-turnstile" data-sitekey={turnstileSiteKey}></div>
         </div>
         <!-- End Turnstile Widget -->
 
-        <div
-          id="order-status"
-          aria-live="polite"
-          style="margin-top: 1rem; min-height: 1.5em; font-weight: bold;"
-        >
-        </div>
+        <div id="order-status" aria-live="polite"></div>
 
         <button
           type="submit"
           id="submit-order-button"
-          style="margin-top: 1rem; padding: 0.8em 1.5em;"
           data-original-text="Submit Order"
         >
           Submit Order
@@ -595,211 +691,207 @@ const turnstileSiteKey = import.meta.env.PUBLIC_TURNSTILE_SITE_KEY || "1x0000000
 </Layout>
 
 <script>
-  // Import for client-side script usage
-  import { resetTurnstileWidget } from "../scripts/formHandler";
+  import { submitOrderForm } from "../scripts/formHandler";
+  import type { OrderFormSubmitOptions } from "../scripts/formHandler";
 
   // --- Element References ---
   const form = document.getElementById("order-form") as HTMLFormElement | null;
-  const orderFilesInput = document.getElementById("order-files") as HTMLInputElement | null;
-  const nameInput = document.getElementById("orderer-name") as HTMLInputElement | null;
-  const phoneInput = document.getElementById("phone") as HTMLInputElement | null;
-  const packageSlider = document.getElementById("package-slider") as HTMLInputElement | null;
-  const packageDisplay = document.getElementById("selected-package-display") as HTMLSpanElement | null;
-  const disadvantageCheckbox = document.getElementById("is-disadvantaged") as HTMLInputElement | null;
-  const certificateContainer = document.getElementById("certificate-container") as HTMLDivElement | null;
-  const certificateInput = document.getElementById("certificate-file") as HTMLInputElement | null;
-  const schoolCheckbox = document.getElementById("is-school") as HTMLInputElement | null;
-  const submitButton = document.getElementById("submit-order-button") as HTMLButtonElement | null;
-  const statusDiv = document.getElementById("order-status") as HTMLElement | null;
-  const turnstileResponseInputName = "cf-turnstile-response"; // Default name
+  const orderFilesInput = document.getElementById(
+    "order-files",
+  ) as HTMLInputElement | null;
+  const nameInput = document.getElementById(
+    "orderer-name",
+  ) as HTMLInputElement | null;
+  const phoneInput = document.getElementById(
+    "phone",
+  ) as HTMLInputElement | null;
+  const packageSlider = document.getElementById(
+    "package-slider",
+  ) as HTMLInputElement | null;
+  const packageDisplay = document.getElementById(
+    "selected-package-display",
+  ) as HTMLSpanElement | null;
+  const disadvantageCheckbox = document.getElementById(
+    "is-disadvantaged",
+  ) as HTMLInputElement | null;
+  const certificateContainer = document.getElementById(
+    "certificate-container",
+  ) as HTMLDivElement | null;
+  const certificateInput = document.getElementById(
+    "certificate-file",
+  ) as HTMLInputElement | null;
+  const schoolCheckbox = document.getElementById(
+    "is-school",
+  ) as HTMLInputElement | null;
+  const submitButton = document.getElementById(
+    "submit-order-button",
+  ) as HTMLButtonElement | null;
+  const statusDiv = document.getElementById(
+    "order-status",
+  ) as HTMLElement | null;
 
   // --- Package Mapping (Client-side for display) ---
-   const packageMap: { [key: string]: string } = {
-      "1": "Basic",
-      "2": "Standard",
-      "3": "Premium",
-   };
+  const packageMap: { [key: string]: string } = {
+    "1": "Basic",
+    "2": "Standard",
+    "3": "Premium",
+  };
 
-  // --- Event Listener Setup ---
-  // Check if all essential elements exist before adding listeners
-  if (form && orderFilesInput && nameInput && phoneInput && packageSlider && packageDisplay && disadvantageCheckbox && certificateContainer && certificateInput && schoolCheckbox && submitButton && statusDiv) {
-
+  // --- Initial Setup ---
+  if (
+    form &&
+    orderFilesInput &&
+    nameInput &&
+    phoneInput &&
+    packageSlider &&
+    packageDisplay &&
+    disadvantageCheckbox &&
+    certificateContainer &&
+    certificateInput &&
+    schoolCheckbox &&
+    submitButton &&
+    statusDiv
+  ) {
     // 1. Slider Event Listener
-    packageSlider.addEventListener('input', () => {
-        // Type guard (optional but good practice if packageMap could be incomplete)
-        const selectedValue = packageSlider.value;
-        packageDisplay.textContent = packageMap[selectedValue] || 'Unknown';
+    packageSlider.addEventListener("input", () => {
+      const selectedValue = packageSlider.value;
+      packageDisplay.textContent = packageMap[selectedValue] || "Unknown";
     });
 
     // 2. Disadvantage Checkbox Listener
-    disadvantageCheckbox.addEventListener('change', () => {
-        if (disadvantageCheckbox.checked) {
-            certificateContainer.classList.remove('hidden');
-            certificateInput.required = true; // Make certificate required if box is checked
-        } else {
-            certificateContainer.classList.add('hidden');
-            certificateInput.required = false;
-            certificateInput.value = ''; // Clear input if unchecked
-        }
+    disadvantageCheckbox.addEventListener("change", () => {
+      if (disadvantageCheckbox.checked) {
+        certificateContainer.classList.remove("hidden");
+        certificateInput.required = true;
+      } else {
+        certificateContainer.classList.add("hidden");
+        certificateInput.required = false;
+        certificateInput.value = "";
+      }
     });
 
-    // 3. Form Submit Listener
+    // 3. Form Submit Listener (Uses the new helper)
     form.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const originalButtonText = submitButton.dataset.originalText || "Submit Order";
-
-      // --- Helper function for setting status ---
-      const setStatus = (message: string, color: string = "inherit") => {
-          if (statusDiv) { // Check statusDiv exists before using it
-              statusDiv.textContent = message;
-              statusDiv.style.color = color;
-          } else {
-              console.warn("Status display element not found."); // Fallback logging
-          }
-      };
-
-      // --- Reset Status ---
-      setStatus(""); // Clear previous status
+      event.preventDefault(); // Prevent default HTML form submission
 
       // --- Client-Side Validation ---
-      // Add checks inside the handler for robustness and to satisfy TS
-      if (!orderFilesInput || !disadvantageCheckbox || !certificateInput || !submitButton) {
-          setStatus("Error: Form elements missing, cannot submit.", "red");
-          console.error("Essential form elements missing during submit event.");
-          return;
-      }
-
-      if (!orderFilesInput.files || orderFilesInput.files.length === 0) {
-          setStatus("Please select at least one document file.", "red");
+      if (
+        !orderFilesInput.files ||
+        orderFilesInput.files.length === 0 ||
+        Array.from(orderFilesInput.files).every((f) => f.size === 0)
+      ) {
+        statusDiv.textContent = "Please select at least one document file.";
+        statusDiv.style.color = "red";
+        if (orderFilesInput) {
           orderFilesInput.focus();
-          return;
+        }
+        return;
       }
-      if (disadvantageCheckbox.checked && (!certificateInput.files || certificateInput.files.length === 0)) {
-           setStatus("Please upload the certificate of indigence.", "red");
-           certificateInput.focus();
-           return;
+      if (
+        disadvantageCheckbox.checked &&
+        (!certificateInput.files ||
+          certificateInput.files.length === 0 ||
+          certificateInput.files[0].size === 0)
+      ) {
+        statusDiv.textContent = "Please upload the certificate of indigence.";
+        statusDiv.style.color = "red";
+        if (certificateInput) {
+          certificateInput.focus();
+        }
+        return;
       }
-      // Add more validation if needed (name, phone format etc.)
 
-
-      // --- UI State: Start Submission ---
-      submitButton.disabled = true;
-      submitButton.textContent = "Initializing...";
-      setStatus("Ensuring session...");
-
-
-      try {
-        // --- Step 1: Ensure Anonymous Auth Session ---
-        const authResponse = await fetch("/api/auth/anonymous", { method: "POST" });
-        if (!authResponse.ok) {
-          let errorMsg = "Authentication setup failed.";
-          try {
-            const errorData = await authResponse.json();
-            errorMsg = errorData.error || `Authentication setup failed (${authResponse.status})`;
-          } catch (e) { /* Ignore parsing error if response wasn't JSON */ }
-          throw new Error(errorMsg); // Throw to be caught by outer catch
+      if (!nameInput.value.trim()) {
+        statusDiv.textContent = "Please enter your name.";
+        statusDiv.style.color = "red";
+        if (nameInput) {
+          nameInput.focus();
         }
-        console.log("Session ensured via server endpoint.");
-        setStatus("Preparing order...");
-
-
-        // --- Step 2: Construct FormData ---
-        // Create FormData directly from the form element
-        const formData = new FormData(form);
-
-
-        // --- Step 3: Submit FormData to API ---
-        submitButton.textContent = "Submitting Order...";
-        setStatus("Submitting order (this may take a moment)...");
-
-        const apiEndpoint = form.action;
-        const response = await fetch(apiEndpoint, {
-            method: "POST",
-            body: formData,
-            // IMPORTANT: Do NOT set Content-Type header when sending FormData with fetch
-        });
-
-        // --- Step 4: Handle API Response ---
-        let responseData;
-        try {
-            // Check if response has content before trying to parse JSON
-            const contentType = response.headers.get("content-type");
-            if (response.ok && contentType && contentType.includes("application/json")) {
-                responseData = await response.json();
-            } else if (!response.ok) {
-                // Try to parse JSON error even if status is bad
-                if (contentType && contentType.includes("application/json")) {
-                   responseData = await response.json();
-                } else {
-                   // Handle non-JSON errors (e.g., HTML error page)
-                   const textResponse = await response.text();
-                   throw new Error(`Server error: Status ${response.status}. Response: ${textResponse.substring(0, 100)}...`); // Show snippet
-                }
-            } else {
-                 // Response OK but not JSON (unexpected but maybe valid case?)
-                 console.warn("Response was OK but not valid JSON. Proceeding without response data.");
-                 responseData = { id: "[N/A - Non-JSON Response]" }; // Placeholder
-            }
-
-        } catch (jsonError: any) {
-             // Catch explicit JSON parsing errors or errors thrown above
-             console.error("Error processing server response:", jsonError);
-             throw new Error(`Failed to process server response: ${jsonError.message || "Unknown processing error"}`);
-        }
-
-        if (!response.ok) {
-             // Use error message from parsed JSON body if available, otherwise default
-             const errorMessage = responseData?.error || `Submission failed with status: ${response.status}`;
-             throw new Error(errorMessage);
-        }
-
-        // --- Success ---
-        setStatus(`Order submitted successfully! Order ID: ${responseData?.id || '[Unknown ID]'}`, "green");
-        form.reset(); // Reset all form fields
-        // Manually trigger updates needed after form.reset()
-        if (packageSlider && packageDisplay) { // Add checks after reset
-            packageDisplay.textContent = packageMap[packageSlider.value] || 'Unknown';
-        }
-        if (certificateContainer && certificateInput) { // Add checks after reset
-            certificateContainer.classList.add('hidden');
-            certificateInput.required = false;
-        }
-        resetTurnstileWidget(form); // Reset CAPTCHA
-        setTimeout(() => { setStatus(""); }, 8000); // Clear message after delay
-
-
-      } catch (error: any) {
-        // --- Error Handling ---
-        console.error("Order submission error:", error);
-        setStatus(`Error: ${error.message || "An unexpected error occurred."}`, "red");
-        resetTurnstileWidget(form); // Reset CAPTCHA on error too
-        // Optional: Clear error message after a delay
-        // setTimeout(() => { setStatus(''); }, 10000);
-
-      } finally {
-        // --- UI State: End Submission ---
-        // Re-enable button and restore text regardless of success/error (check exists)
-        if (submitButton) {
-            submitButton.disabled = false;
-            submitButton.textContent = originalButtonText;
-        }
+        return;
       }
+      if (!phoneInput.value.trim()) {
+        statusDiv.textContent = "Please enter your phone number.";
+        statusDiv.style.color = "red";
+        if (phoneInput) {
+          phoneInput.focus();
+        }
+        return;
+      }
+
+      // --- Define Callbacks for the Helper ---
+      const onSuccessHandler = (data: any, formElement: HTMLFormElement) => {
+        if (statusDiv) {
+          statusDiv.textContent = `Order submitted successfully! Order ID: ${data?.id || "[Unknown ID]"}`;
+          statusDiv.style.color = "green";
+        }
+        formElement.reset();
+        if (packageSlider && packageDisplay) {
+          packageDisplay.textContent =
+            packageMap[packageSlider.value] || "Unknown";
+        }
+        if (certificateContainer && certificateInput) {
+          certificateContainer.classList.add("hidden");
+          certificateInput.required = false;
+        }
+        setTimeout(() => {
+          if (statusDiv) statusDiv.textContent = "";
+        }, 8000);
+      };
+
+      const onErrorHandler = (
+        error: Error,
+        statusElement: HTMLElement | null,
+      ) => {
+        if (statusElement) {
+          statusElement.textContent = `Error: ${error.message || "An unexpected error occurred."}`;
+          statusElement.style.color = "red";
+        }
+      };
+
+      // --- Prepare Options for the Helper ---
+      const options: OrderFormSubmitOptions = {
+        formElement: form,
+        statusElement: statusDiv,
+        submitButton: submitButton,
+        onSuccess: onSuccessHandler,
+        onError: onErrorHandler,
+        // authEndpoint, initializingText, submittingText can use defaults from helper
+      };
+
+      // --- Call the Form Submission Helper ---
+      await submitOrderForm(options);
     });
-
   } else {
-    // Log error if initial element finding failed
     console.error(
-      "Could not find all required elements for the order form script. Check element IDs and ensure the DOM is ready.",
-       { form, orderFilesInput, nameInput, phoneInput, packageSlider, packageDisplay, disadvantageCheckbox, certificateContainer, certificateInput, schoolCheckbox, submitButton, statusDiv } // Log which elements were found/not found
+      "Could not find all required elements for the order form script. Check element IDs.",
+      {
+        form,
+        orderFilesInput,
+        nameInput,
+        phoneInput,
+        packageSlider,
+        packageDisplay,
+        disadvantageCheckbox,
+        certificateContainer,
+        certificateInput,
+        schoolCheckbox,
+        submitButton,
+        statusDiv,
+      },
     );
-    // Optionally display an error to the user if the form cannot initialize
     const errorDisplay = document.getElementById("order-status");
     if (errorDisplay) {
-        errorDisplay.textContent = "Error initializing the order form. Please refresh the page.";
-        errorDisplay.style.color = "red";
+      errorDisplay.textContent =
+        "Error initializing the order form. Please refresh the page.";
+      errorDisplay.style.color = "red";
+    } else if (statusDiv) {
+      statusDiv.textContent =
+        "Error initializing the order form. Please refresh the page.";
+      statusDiv.style.color = "red";
     }
   }
 </script>
+
 ```
 ---
 
@@ -833,6 +925,672 @@ const title = "Sign In";
     </section>
   </main>
 </Layout>
+```
+---
+
+`src/pages/admin/index.astro`:
+```
+---
+// src/pages/admin/index.astro
+// Redirects to the main admin orders page
+return Astro.redirect('/admin/orders');
+---
+```
+---
+
+`src/pages/admin/orders/index.astro`:
+```
+---
+// src/pages/admin/orders/index.astro
+import AdminLayout from "../../../layouts/AdminLayout.astro";
+import type { Order } from "../../../types/types";
+
+let orders: Order[] = [];
+let errorMessage: string | null = null;
+
+try {
+  // Make API call server-side to fetch orders
+  // Note: Using Astro.url.origin ensures correct host in SSR/prod
+  const response = await fetch(`${Astro.url.origin}/api/admin/orders`, {
+     headers: {
+         // Forward cookies from the incoming request to the API route
+         // This is crucial for the API route to authenticate the admin user
+         'Cookie': Astro.request.headers.get('cookie') || ''
+     }
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ error: `HTTP error ${response.status}` }));
+    throw new Error(errorData.error || `Failed to fetch orders: ${response.status}`);
+  }
+  orders = await response.json();
+
+} catch (e: any) {
+   console.error("Error fetching admin orders:", e);
+   errorMessage = e.message || "An unexpected error occurred.";
+   // Don't expose detailed errors potentially containing sensitive info to client
+   errorMessage = "Could not load orders. Please check server logs or try again later.";
+}
+
+const formatDate = (dateString: string | null | undefined) => {
+    if (!dateString) return 'N/A';
+    try {
+        return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(dateString));
+    } catch {
+        return dateString; // Fallback
+    }
+}
+---
+
+<AdminLayout title="Manage Orders">
+  {errorMessage && <p style="color: red;">Error: {errorMessage}</p>}
+
+  {orders.length === 0 && !errorMessage ? (
+    <p>No orders found.</p>
+  ) : (
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Created</th>
+          <th>Orderer Name</th>
+          <th>Status</th>
+          <th>Package</th>
+          <th>User ID</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {orders.map((order) => (
+          <tr>
+            <td>{order.id}</td>
+            <td>{formatDate(order.created_at)}</td>
+            <td>{order.orderer_name}</td>
+            <td>{order.status || 'N/A'}</td>
+            <td>{order.package_tier || 'N/A'}</td>
+            <td>{order.user_id}</td>
+            <td>
+              <a href={`/admin/orders/${order.id}`}>Details</a>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )}
+</AdminLayout>
+```
+---
+
+`src/pages/admin/orders/[orderId].astro`:
+```
+---
+// src/pages/admin/orders/[orderId].astro
+import AdminLayout from "../../../layouts/AdminLayout.astro";
+import type { Order } from "../../../types/types";
+
+const { orderId } = Astro.params;
+let order: Order | null = null;
+let errorMessage: string | null = null;
+
+if (!orderId || isNaN(Number(orderId))) {
+     errorMessage = "Invalid Order ID provided in URL.";
+     // Could also redirect: return Astro.redirect('/admin/orders?error=Invalid+ID');
+} else {
+    try {
+        const response = await fetch(`${Astro.url.origin}/api/admin/orders/${orderId}`, {
+             headers: { 'Cookie': Astro.request.headers.get('cookie') || '' }
+        });
+         if (response.status === 404) {
+            errorMessage = `Order with ID ${orderId} not found.`;
+         } else if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ error: `HTTP error ${response.status}` }));
+            throw new Error(errorData.error || `Failed to fetch order details: ${response.status}`);
+         } else {
+            order = await response.json();
+         }
+    } catch (e: any) {
+        console.error(`Error fetching admin order ${orderId}:`, e);
+        errorMessage = `Could not load order details. ${e.message || "Check server logs."}`;
+    }
+}
+
+const formatDate = (dateString: string | null | undefined) => {
+     if (!dateString) return 'N/A';
+     return new Intl.DateTimeFormat('en-US', { dateStyle: 'long', timeStyle: 'medium' }).format(new Date(dateString));
+}
+const formatBoolean = (val: boolean | null | undefined) => val ? 'Yes' : 'No';
+const formatPrice = (price: number | null | undefined) => {
+    if (price === null || price === undefined) return 'N/A';
+    // Assuming price is stored in smallest unit (e.g., cents) if it needs conversion, otherwise format directly.
+    // Example: return `$${(price / 100).toFixed(2)}`;
+    return price.toLocaleString(); // Basic formatting
+}
+const getStorageUrl = (path: string | null | undefined) => {
+    if (!path) return null;
+    // Construct the public URL based on your Supabase project ref
+    // IMPORTANT: Replace YOUR_PROJECT_REF below
+    const supabaseUrl = import.meta.env.PUBLIC_SUPABASE_URL;
+    if (!supabaseUrl) return '#error-missing-supabase-url';
+    // Basic construction, might need adjustment if using signed URLs etc.
+    return `${supabaseUrl}/storage/v1/object/public/${path}`;
+}
+const validStatuses: Order['status'][] = ["pending", "processing", "completed", "cancelled"];
+---
+
+<AdminLayout title={order ? `Order Details #${order.id}` : (errorMessage ? 'Error' : 'Loading...')}>
+
+  {errorMessage && <p class="status-message status-error">Error: {errorMessage}</p>}
+
+  {order && (
+    <div>
+      <h2>Order Summary</h2>
+      <p><strong>Order ID:</strong> {order.id}</p>
+      <p><strong>User ID:</strong> {order.user_id}</p>
+      <p><strong>Orderer Name:</strong> {order.orderer_name}</p>
+      <p><strong>Phone:</strong> {order.phone || 'N/A'}</p>
+      <p><strong>Created At:</strong> {formatDate(order.created_at)}</p>
+      <p><strong>Package:</strong> {order.package_tier || 'N/A'}</p>
+      <p><strong>Is Disadvantaged:</strong> {formatBoolean(order.is_disadvantaged)}</p>
+      <p><strong>Is School/Body:</strong> {formatBoolean(order.is_school)}</p>
+
+      <h3>Documents</h3>
+      <ul>
+        {order.uploaded_file_urls?.map(url => {
+            const fullUrl = getStorageUrl(url);
+            const filename = url.split('/').pop();
+            return <li><a href={fullUrl || '#'} target="_blank" rel="noopener noreferrer">{filename}</a></li>;
+        }) ?? <li>No documents uploaded.</li>}
+      </ul>
+       {order.is_disadvantaged && (
+         <p>
+            <strong>Certificate of Indigence:</strong>
+            {order.certificate_url ? (
+                <a href={getStorageUrl(order.certificate_url) || '#'} target="_blank" rel="noopener noreferrer">
+                   {order.certificate_url.split('/').pop()}
+                </a>
+            ) : 'Not Provided'}
+         </p>
+       )}
+
+      <hr />
+
+      {/* --- Edit Form --- */}
+      <form id="edit-order-form">
+        <h3>Update Order Details</h3>
+         <div id="edit-status" class="status-message" aria-live="polite" style="display: none;"></div>
+
+        <div>
+          <label for="status">Status:</label>
+          <select id="status" name="status">
+            {validStatuses.map(s => (
+                <option value={s} selected={order?.status === s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
+            ))}
+          </select>
+        </div>
+         <div>
+          <label for="page_count">Page Count:</label>
+          <input type="number" id="page_count" name="page_count" value={order.page_count ?? ''} min="0" step="1" />
+        </div>
+         <div>
+          <label for="total_price">Total Price:</label>
+          {/* Assuming price is a whole number, adjust step if needed */}
+          <input type="number" id="total_price" name="total_price" value={order.total_price ?? ''} min="0" step="1" />
+        </div>
+        <button type="submit" id="edit-submit-button">Save Changes</button>
+      </form>
+
+      <hr />
+
+      {/* --- Upload Translated File Form --- */}
+      <form id="upload-translation-form" enctype="multipart/form-data">
+         <h3>Upload Translated Document</h3>
+         <p>
+            <strong>Current Translated File:</strong>
+            {order.translated_file_url ? (
+                <a href={getStorageUrl(order.translated_file_url) || '#'} target="_blank" rel="noopener noreferrer">
+                   {order.translated_file_url.split('/').pop()}
+                </a>
+            ) : 'None'}
+         </p>
+         <div id="upload-status" class="status-message" aria-live="polite" style="display: none;"></div>
+         <div>
+            <label for="translated_file">Select File:</label>
+            <input type="file" id="translated_file" name="translated_file" required accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png" />
+         </div>
+          <button type="submit" id="upload-submit-button">Upload Translation</button>
+      </form>
+    </div>
+  )}
+
+  <script define:vars={{ orderId }}>
+    // --- Edit Order Script ---
+    const editForm = document.getElementById('edit-order-form');
+    const editStatusDiv = document.getElementById('edit-status');
+    const editSubmitButton = document.getElementById('edit-submit-button');
+
+    if (editForm && editStatusDiv && editSubmitButton) {
+        editForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            editSubmitButton.disabled = true;
+            editSubmitButton.textContent = 'Saving...';
+            editStatusDiv.style.display = 'none';
+            editStatusDiv.className = 'status-message'; // Reset class
+
+            const formData = new FormData(editForm);
+            const payload = {
+                status: formData.get('status'),
+                // Convert to number or null
+                page_count: formData.get('page_count') ? Number(formData.get('page_count')) : null,
+                total_price: formData.get('total_price') ? Number(formData.get('total_price')) : null,
+            };
+
+            // Filter out null values if API expects only defined fields
+            Object.keys(payload).forEach(key => {
+                if (payload[key] === null || payload[key] === '') {
+                   // Decide if you want to send null or omit the key
+                   // Sending null might explicitly clear the value in DB
+                   // Omitting leaves it unchanged
+                   // Let's send nulls for now
+                   // delete payload[key];
+                }
+            });
+
+
+            try {
+                const response = await fetch(`/api/admin/orders/${orderId}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || `HTTP Error ${response.status}`);
+                }
+
+                editStatusDiv.textContent = 'Order updated successfully!';
+                editStatusDiv.className = 'status-message status-success';
+                editStatusDiv.style.display = 'block';
+
+                // Optional: Update the displayed values on the page without full reload
+                // document.getElementById('status').value = data.status;
+                // ... etc.
+
+            } catch (error) {
+                console.error("Update error:", error);
+                editStatusDiv.textContent = `Error updating order: ${error.message}`;
+                editStatusDiv.className = 'status-message status-error';
+                editStatusDiv.style.display = 'block';
+            } finally {
+                editSubmitButton.disabled = false;
+                editSubmitButton.textContent = 'Save Changes';
+            }
+        });
+    }
+
+    // --- Upload Translation Script ---
+    const uploadForm = document.getElementById('upload-translation-form');
+    const uploadStatusDiv = document.getElementById('upload-status');
+    const uploadSubmitButton = document.getElementById('upload-submit-button');
+    const fileInput = document.getElementById('translated_file');
+
+    if (uploadForm && uploadStatusDiv && uploadSubmitButton && fileInput) {
+         uploadForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            uploadSubmitButton.disabled = true;
+            uploadSubmitButton.textContent = 'Uploading...';
+            uploadStatusDiv.style.display = 'none';
+            uploadStatusDiv.className = 'status-message'; // Reset class
+
+            const formData = new FormData(uploadForm); // Contains the file
+
+            try {
+                 const response = await fetch(`/api/admin/orders/${orderId}/upload`, {
+                    method: 'POST',
+                    body: formData, // Send FormData directly
+                 });
+
+                 const data = await response.json(); // Expect updated order data
+
+                 if (!response.ok) {
+                    throw new Error(data.error || `HTTP Error ${response.status}`);
+                 }
+
+                 uploadStatusDiv.textContent = 'Translation uploaded successfully!';
+                 uploadStatusDiv.className = 'status-message status-success';
+                 uploadStatusDiv.style.display = 'block';
+                 fileInput.value = ''; // Reset file input
+
+                 // Update the display of the current translated file link dynamically
+                 const linkElement = document.querySelector('#upload-translation-form p a');
+                 const textElement = document.querySelector('#upload-translation-form p strong');
+                 if (linkElement && data.translated_file_url) {
+                     linkElement.href = `${import.meta.env.PUBLIC_SUPABASE_URL}/storage/v1/object/public/${data.translated_file_url}`;
+                     linkElement.textContent = data.translated_file_url.split('/').pop();
+                 } else if (textElement && data.translated_file_url) {
+                     // If there wasn't a link before, create one
+                      textElement.nextSibling.textContent = ' '; // Add space
+                      const newLink = document.createElement('a');
+                      newLink.href = `${import.meta.env.PUBLIC_SUPABASE_URL}/storage/v1/object/public/${data.translated_file_url}`;
+                      newLink.textContent = data.translated_file_url.split('/').pop();
+                      newLink.target = '_blank';
+                      newLink.rel = 'noopener noreferrer';
+                      textElement.parentNode.insertBefore(newLink, textElement.nextSibling.nextSibling);
+                 } else if (linkElement && !data.translated_file_url) {
+                     // If file was removed (e.g., updated to null - though this form doesn't do that)
+                     linkElement.remove();
+                     textElement.nextSibling.textContent = ' None';
+                 } else {
+                     // Fallback if elements not found, just show success message
+                 }
+
+
+            } catch (error) {
+                 console.error("Upload error:", error);
+                 uploadStatusDiv.textContent = `Error uploading file: ${error.message}`;
+                 uploadStatusDiv.className = 'status-message status-error';
+                 uploadStatusDiv.style.display = 'block';
+            } finally {
+                 uploadSubmitButton.disabled = false;
+                 uploadSubmitButton.textContent = 'Upload Translation';
+            }
+         });
+    }
+  </script>
+</AdminLayout>
+```
+---
+
+`src/pages/api/admin/orders/index.ts`:
+```
+// src/pages/api/admin/orders/[orderId].ts
+import type { APIRoute } from "astro";
+import { supabase } from "../../../../lib/supabase";
+import { jsonResponse, jsonErrorResponse } from '../../../../utils/apiResponse';
+import { handleSupabaseError } from "../../../../utils/supabaseUtils";
+import type { Order } from "../../../../types/types";
+
+// GET handler for fetching a single order by ID
+export const GET: APIRoute = async ({ params, locals }) => {
+    const adminUserId = locals.userId;
+    const orderId = params.orderId;
+    console.log(`API Route: GET /api/admin/orders/${orderId} invoked by admin user ${adminUserId}.`);
+
+    if (!orderId || isNaN(Number(orderId))) {
+        return jsonErrorResponse(400, "Invalid Order ID.");
+    }
+    const idNum = Number(orderId);
+
+    try {
+         const { data, error } = await supabase
+            .from("orders")
+            .select(`*`) // Select all fields for detail view
+            .eq("id", idNum)
+            .single(); // Expect only one
+
+        handleSupabaseError(error, `fetch order ${idNum} (admin)`);
+
+        if (!data) {
+            return jsonErrorResponse(404, `Order with ID ${idNum} not found.`);
+        }
+
+        console.log(`API Route: Fetched order ${idNum} for admin.`);
+        return jsonResponse(200, data as Order);
+
+    } catch (error: any) {
+        console.error(`API Error (GET /api/admin/orders/${orderId}):`, error.message);
+         if (error.message.includes("Permission Denied")) {
+             return jsonErrorResponse(403, error.message);
+         }
+         if (error.code === 'PGRST116') { // PostgREST code for "exactly one row expected" failure
+             return jsonErrorResponse(404, `Order with ID ${idNum} not found.`);
+         }
+        return jsonErrorResponse(500, `Failed to retrieve order ${idNum}: ${error.message}`);
+    }
+}
+
+// PATCH handler for updating specific order fields
+export const PATCH: APIRoute = async ({ request, params, locals }) => {
+    const adminUserId = locals.userId;
+    const orderId = params.orderId;
+    console.log(`API Route: PATCH /api/admin/orders/${orderId} invoked by admin user ${adminUserId}.`);
+
+    if (!orderId || isNaN(Number(orderId))) {
+        return jsonErrorResponse(400, "Invalid Order ID.");
+    }
+    const idNum = Number(orderId);
+
+    let payload: Partial<Pick<Order, 'status' | 'page_count' | 'total_price' | 'translated_file_url'>>;
+    try {
+        payload = await request.json();
+    } catch (e) {
+        return jsonErrorResponse(400, "Invalid JSON body.");
+    }
+
+    // Validate and build the update object, only allowing specific fields
+    const updateData: Partial<Order> = {};
+    const allowedFields: (keyof typeof payload)[] = ['status', 'page_count', 'total_price', 'translated_file_url'];
+    let hasValidUpdate = false;
+
+    for (const key of allowedFields) {
+        if (payload[key] !== undefined) {
+            // Add specific validation if needed (e.g., status must be one of the allowed values)
+            if (key === 'status') {
+                const validStatuses: Order['status'][] = ["pending", "processing", "completed", "cancelled"];
+                if (!validStatuses.includes(payload.status as Order['status'])) {
+                   return jsonErrorResponse(400, `Invalid status value: ${payload.status}`);
+                }
+                updateData.status = payload.status;
+                hasValidUpdate = true;
+            } else if (key === 'page_count') {
+                const count = Number(payload.page_count);
+                if (isNaN(count) || count < 0) {
+                   return jsonErrorResponse(400, `Invalid page_count value: ${payload.page_count}`);
+                }
+                updateData.page_count = Math.floor(count); // Ensure integer
+                hasValidUpdate = true;
+            } else if (key === 'total_price') {
+                const price = Number(payload.total_price);
+                if (isNaN(price) || price < 0) {
+                    return jsonErrorResponse(400, `Invalid total_price value: ${payload.total_price}`);
+                }
+                // Note: Supabase bigint might need conversion depending on exact setup/client library
+                // Assuming direct number assignment works here. Could also send as string if needed.
+                updateData.total_price = price;
+                hasValidUpdate = true;
+            } else if (key === 'translated_file_url') {
+                // Basic check: allow null or non-empty string
+                if (payload.translated_file_url === null || typeof payload.translated_file_url === 'string') {
+                     updateData.translated_file_url = payload.translated_file_url || null; // Store empty string as null maybe? Decide convention.
+                     hasValidUpdate = true;
+                } else {
+                     return jsonErrorResponse(400, `Invalid translated_file_url value: ${payload.translated_file_url}`);
+                }
+            }
+        }
+    }
+
+    if (!hasValidUpdate) {
+        return jsonErrorResponse(400, "No valid fields provided for update.");
+    }
+
+    console.log(`API Route: Updating order ${idNum} with data:`, updateData);
+
+    try {
+        const { data, error } = await supabase
+            .from("orders")
+            .update(updateData)
+            .eq("id", idNum)
+            .select() // Return the updated row
+            .single();
+
+        handleSupabaseError(error, `update order ${idNum} (admin)`);
+
+        if (!data) {
+             // Should not happen if update succeeded without error, but safeguard.
+             return jsonErrorResponse(404, `Order with ID ${idNum} not found or update failed silently.`);
+        }
+
+        console.log(`API Route: Updated order ${idNum} successfully.`);
+        return jsonResponse(200, data as Order);
+
+    } catch (error: any) {
+        console.error(`API Error (PATCH /api/admin/orders/${orderId}):`, error.message);
+         if (error.message.includes("Permission Denied")) {
+             return jsonErrorResponse(403, error.message);
+         }
+         if (error.code === 'PGRST116') { // If the select().single() fails after update
+            return jsonErrorResponse(404, `Order with ID ${idNum} not found after update.`);
+         }
+        return jsonErrorResponse(500, `Failed to update order ${idNum}: ${error.message}`);
+    }
+};
+```
+---
+
+`src/pages/api/admin/orders/[orderId]/upload.ts`:
+```
+// src/pages/api/admin/orders/[orderId]/upload.ts
+import type { APIRoute } from "astro";
+import { supabase } from "../../../../../lib/supabase";
+import { jsonResponse, jsonErrorResponse } from '../../../../../utils/apiResponse';
+import { handleSupabaseError } from "../../../../../utils/supabaseUtils"; // Keep for DB operations
+import { sanitizeFilename } from "../../../../../utils/filenameUtils";
+import type { Order } from "../../../../../types/types";
+
+const generateRandomSuffix = (length = 6) => Math.random().toString(36).substring(2, 2 + length);
+
+export const POST: APIRoute = async ({ request, params, locals }) => {
+    const adminUserId = locals.userId;
+    const orderId = params.orderId;
+    const timestamp = Date.now();
+    const storageBucket = "documents";
+
+    // Middleware should have already verified admin status, but we check userId exists
+    if (!adminUserId) {
+        // This should technically not be reachable if middleware is correct
+        console.error("API Error (admin upload): No admin user ID found in locals.");
+        return jsonErrorResponse(401, "Unauthorized: Admin session not found.");
+    }
+
+    console.log(`API Route: POST /api/admin/orders/${orderId}/upload invoked by admin user ${adminUserId}.`);
+
+    if (!orderId || isNaN(Number(orderId))) {
+        return jsonErrorResponse(400, "Invalid Order ID.");
+    }
+    const idNum = Number(orderId);
+
+    // 1. Get the original user ID associated with the order
+    let originalUserId: string;
+    try {
+        console.log(`API Route: Fetching original user ID for order ${idNum}...`);
+        const { data: orderData, error: fetchError } = await supabase
+            .from("orders")
+            .select("user_id")
+            .eq("id", idNum)
+            .maybeSingle(); // Use maybeSingle to handle not found gracefully
+
+        // Use handleSupabaseError for the database fetch operation
+        handleSupabaseError(fetchError, `fetch user_id for order ${idNum} (admin upload)`);
+
+        if (!orderData?.user_id) {
+            // handleSupabaseError would throw on DB error, so this means not found
+            return jsonErrorResponse(404, `Order with ID ${idNum} not found or has no associated user.`);
+        }
+        originalUserId = orderData.user_id;
+        console.log(`API Route: Found original user ID ${originalUserId} for order ${idNum}.`);
+
+    } catch (error: any) {
+         console.error(`API Error (fetching user_id for order ${idNum}):`, error.message);
+         // If handleSupabaseError threw, error message will be standardized
+         return jsonErrorResponse(500, `Failed to retrieve order details: ${error.message}`);
+    }
+
+    // 2. Process FormData for the file
+    let file: File | null = null;
+    let filename = 'untitled_translation';
+    try {
+        const formData = await request.formData();
+        const fileEntry = formData.get("translated_file"); // Make sure form field name matches
+
+        if (!fileEntry || typeof fileEntry === 'string' || !(fileEntry instanceof File) || fileEntry.size === 0) {
+             return jsonErrorResponse(400, "Missing or invalid 'translated_file' in form data.");
+        }
+        file = fileEntry;
+        filename = file.name;
+        console.log(`API Route: Received file '${filename}' for upload.`);
+    } catch (error: any) {
+         console.error("API Error: Failed to parse FormData.", error);
+         return jsonErrorResponse(400, "Bad Request: Invalid form data.");
+    }
+
+    // 3. Upload file to storage under the *original user's* folder
+    const sanitizedName = sanitizeFilename(filename);
+    const randomSuffix = generateRandomSuffix();
+    // Store translations in a subfolder within the user's directory
+    const filePath = `${originalUserId}/translations/${idNum}-${timestamp}-${randomSuffix}-${sanitizedName}`;
+
+    console.log(`API Route: Uploading translated file to bucket '${storageBucket}' at path ${filePath}`);
+    try {
+         const { error: uploadError } = await supabase.storage
+            .from(storageBucket)
+            .upload(filePath, file!); // Assert file is not null here based on previous check
+
+        // Check specifically for StorageError here, NOT using handleSupabaseError
+        if (uploadError) {
+             console.error(`API Error: Failed to upload ${filename}. Error:`, uploadError);
+             // Throw a standard Error, the catch block below will handle it
+             throw new Error(`Server Error: Failed to upload file '${filename}'. ${uploadError.message}`);
+        }
+        console.log(`API Route: Successfully uploaded ${filename} to ${filePath}`);
+
+    } catch (error: any) {
+         // This catch block now handles both network errors during upload
+         // and the explicitly thrown error from the 'if (uploadError)' check above.
+         console.error(`API Error (uploading file ${filePath}):`, error.message);
+         // Return a generic error message for security
+         return jsonErrorResponse(500, `Failed to upload file: ${error.message || 'An unexpected error occurred.'}`);
+    }
+
+    // 4. Update the order record with the file path
+    console.log(`API Route: Updating order ${idNum} with translated_file_url: ${filePath}`);
+    try {
+        const { data: updatedOrder, error: updateError } = await supabase
+            .from("orders")
+            .update({ translated_file_url: filePath })
+            .eq("id", idNum)
+            .select() // Return updated order
+            .single();
+
+        // Use handleSupabaseError for the database update operation
+        handleSupabaseError(updateError, `update order ${idNum} with translated file URL (admin)`);
+
+        if (!updatedOrder) {
+             // Should not happen if update succeeded without error and row exists, but safeguard.
+             // handleSupabaseError would throw on PGRST116 (not found) if .single() failed.
+             console.error(`API Logic Error: Order ${idNum} not found after successful update.`);
+             return jsonErrorResponse(500, `Order with ID ${idNum} could not be retrieved after update.`);
+        }
+
+        console.log(`API Route: Successfully updated order ${idNum} with translation URL.`);
+        return jsonResponse(200, updatedOrder as Order);
+
+    } catch (error: any) {
+         console.error(`API Error (updating order ${idNum} with URL):`, error.message);
+         // Attempt to delete the orphaned file? Maybe too complex for now. Log it.
+         console.warn(`Potentially orphaned file uploaded to ${filePath} due to database update failure.`);
+
+         // Standardize response using error message from handleSupabaseError if it threw
+         let statusCode = 500;
+         if (error.message.includes("Permission Denied")) {
+            statusCode = 403;
+         }
+         // Consider other specific errors if needed
+
+         return jsonErrorResponse(statusCode, `Failed to update order with file URL: ${error.message}`);
+    }
+};
 ```
 ---
 
@@ -995,13 +1753,15 @@ export const GET: APIRoute = async () => {
 export const POST: APIRoute = async ({ request, locals }) => {
   console.log("API Route: POST /api/guestbook invoked.");
 
-  // --- OPTIMIZATION ---
-  // The middleware already ensures that locals.userId is present for this route.
-  // We can safely use the non-null assertion operator (!).
-  // The redundant check 'if (!userId) { ... }' has been removed.
-  const userId = locals.userId!;
-  console.log(`API Route: User authenticated via middleware. User ID: ${userId}. Ready to create guestbook entry.`);
-  // --- END OPTIMIZATION ---
+  // --- Explicit Authentication Check ---
+  const userId = locals.userId;
+  if (!userId) {
+      console.log("API Error: Unauthorized access attempt to POST /api/guestbook.");
+      // Middleware should prevent this, but this is an explicit safeguard.
+      return jsonErrorResponse(401, "Unauthorized: Authentication required.");
+  }
+  console.log(`API Route: User authenticated. User ID: ${userId}. Ready to create guestbook entry.`);
+  // --- End Explicit Authentication Check ---
 
   try {
     let name: string;
@@ -1020,8 +1780,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
         return jsonErrorResponse(400, "Bad Request: Invalid JSON body.");
     }
 
-    // Note: userId isn't directly used by createGuestbookEntry in this example,
-    // but it confirms the user is authenticated as required by the middleware.
+    // Note: userId confirms authentication but isn't directly used by createGuestbookEntry here.
     const newEntry = await createGuestbookEntry(name, message);
 
     console.log("API Route: Guestbook entry created successfully.");
@@ -1048,199 +1807,238 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
 `src/pages/api/orders/create.ts`:
 ```
-// src/pages/api/orders/create.ts
-import type { APIRoute } from "astro";
-import { supabase } from "../../../lib/supabase"; // Direct import for storage
+import type { APIRoute, APIContext } from "astro";
+import { supabase } from "../../../lib/supabase";
 import { createOrder } from "../../../services/order.service";
 import { verifyTurnstileToken } from '../../../utils/turnstile';
 import { jsonResponse, jsonErrorResponse } from '../../../utils/apiResponse';
-import { sanitizeFilename } from "../../../utils/filenameUtils"; // Assuming you create this utility
+import { sanitizeFilename } from "../../../utils/filenameUtils";
 
-// Helper function to generate a random suffix
 const generateRandomSuffix = (length = 6) => Math.random().toString(36).substring(2, 2 + length);
 
-// --- API Route Handler ---
-export const POST: APIRoute = async ({ request, locals, clientAddress }) => {
-  console.log("API Route: POST /api/orders/create invoked.");
-
-  // --- Authentication Check (Middleware Guarantee) ---
-  const userId = locals.userId!; // Asserting non-null based on middleware guarantee
-  console.log(`API Route: User authenticated via middleware. User ID: ${userId}`);
-
-  // --- FormData Parsing ---
-  let formData: FormData;
-  try {
-    formData = await request.formData();
-  } catch (error: any) {
-    console.error("API Error: Failed to parse FormData.", error);
-    return jsonErrorResponse(400, "Bad Request: Invalid form data.");
-  }
-
-  // --- Data Extraction from FormData ---
-  const ordererName = formData.get("orderer_name")?.toString().trim();
-  const phone = formData.get("phone")?.toString().trim();
-  const packageSliderValue = formData.get("package_tier_value")?.toString(); // e.g., "1", "2"
-  const isDisadvantaged = formData.get("is_disadvantaged") === "on"; // Checkbox value is 'on' when checked
-  const isSchool = formData.get("is_school") === "on";
-  const turnstileToken = formData.get("cf-turnstile-response")?.toString();
-  const orderFiles = formData.getAll("order_files") as File[]; // Array of File objects
-  const certificateFile = formData.get("certificate_file") as File | null; // Single File or null
-
-  // --- Basic Validation ---
-  if (!ordererName) {
-    return jsonErrorResponse(400, "Bad Request: Orderer name is required.");
-  }
-  if (!packageSliderValue) {
-    return jsonErrorResponse(400, "Bad Request: Package selection is required.");
-  }
-  if (!turnstileToken) {
-    return jsonErrorResponse(400, "Bad Request: CAPTCHA token is missing.");
-  }
-  if (!orderFiles || orderFiles.length === 0 || orderFiles.some(f => f.size === 0)) {
-     return jsonErrorResponse(400, "Bad Request: At least one main document file is required.");
-  }
-  if (isDisadvantaged && (!certificateFile || certificateFile.size === 0)) {
-     return jsonErrorResponse(400, "Bad Request: Certificate of indigence is required when economic disadvantage is checked.");
-  }
-  if (!isDisadvantaged && certificateFile && certificateFile.size > 0) {
-      console.warn("API Warning: Certificate file provided but disadvantage checkbox not checked. Ignoring certificate.");
-      // Optionally clear certificateFile here if strict adherence is needed
-  }
-
-
-  // --- Map Slider Value to Tier Name (Example Mapping) ---
-  const packageTiers: { [key: string]: string } = {
+const packageTiers: { [key: string]: string } = {
     "1": "Basic",
     "2": "Standard",
     "3": "Premium",
-    // Add more tiers as needed
-  };
-  const packageTier = packageTiers[packageSliderValue];
-  if (!packageTier) {
-      return jsonErrorResponse(400, "Bad Request: Invalid package selection value.");
-  }
+};
 
+interface ValidatedFormData {
+    ordererName: string;
+    phone?: string;
+    packageSliderValue: string;
+    isDisadvantaged: boolean;
+    isSchool: boolean;
+    turnstileToken: string;
+    orderFiles: File[];
+    certificateFile: File | null;
+}
 
-  // --- Turnstile Verification ---
-  try {
-    console.log("API Route: Verifying Turnstile token...");
-    const forwardedIp = request.headers.get('x-nf-client-connection-ip');
-    const remoteIp = forwardedIp || clientAddress;
-    await verifyTurnstileToken(turnstileToken, remoteIp);
-    console.log("API Route: Turnstile verification successful.");
-  } catch (error: any) {
-    console.warn("API Route: Turnstile verification failed.", error.message);
-    if (error.message.startsWith("Server configuration error")) {
-        return jsonErrorResponse(500, error.message);
+async function _parseAndValidateFormData(formData: FormData): Promise<ValidatedFormData | Response> {
+    try {
+        const ordererName = formData.get("orderer_name")?.toString().trim();
+        const phone = formData.get("phone")?.toString().trim() || undefined;
+        const packageSliderValue = formData.get("package_tier_value")?.toString();
+        const isDisadvantaged = formData.get("is_disadvantaged") === "on";
+        const isSchool = formData.get("is_school") === "on";
+        const turnstileToken = formData.get("cf-turnstile-response")?.toString();
+        const orderFiles = formData.getAll("order_files") as File[];
+        const certificateFile = formData.get("certificate_file") as File | null;
+
+        if (!ordererName) return jsonErrorResponse(400, "Bad Request: Orderer name is required.");
+        if (!packageSliderValue || !packageTiers[packageSliderValue]) return jsonErrorResponse(400, "Bad Request: Invalid or missing package selection.");
+        if (!turnstileToken) return jsonErrorResponse(400, "Bad Request: CAPTCHA token is missing.");
+
+        const validOrderFiles = orderFiles.filter(f => f && f.size > 0);
+        if (validOrderFiles.length === 0) return jsonErrorResponse(400, "Bad Request: At least one main document file is required.");
+
+        const validCertificateFile = (certificateFile && certificateFile.size > 0) ? certificateFile : null;
+        if (isDisadvantaged && !validCertificateFile) return jsonErrorResponse(400, "Bad Request: Certificate of indigence is required when economic disadvantage is checked.");
+        if (!isDisadvantaged && validCertificateFile) console.warn("API Warning: Certificate file provided but disadvantage checkbox not checked. Ignoring certificate.");
+
+        return {
+            ordererName,
+            phone,
+            packageSliderValue,
+            isDisadvantaged,
+            isSchool,
+            turnstileToken,
+            orderFiles: validOrderFiles,
+            certificateFile: isDisadvantaged ? validCertificateFile : null
+        };
+    } catch (error: any) {
+        console.error("API Error: Unexpected error during FormData parsing.", error);
+        return jsonErrorResponse(500, "Server Error: Failed to process form data.");
     }
-    return jsonErrorResponse(403, `CAPTCHA verification failed: ${error.message}`);
-  }
+}
 
-  // --- File Upload Logic (Upload First Strategy) ---
-  const uploadedFilePaths: string[] = [];
-  let certificatePath: string | undefined = undefined;
-  const timestamp = Date.now();
+interface UploadResult {
+    uploadedFilePaths: string[];
+    certificatePath?: string;
+}
 
-  try {
-    console.log(`API Route: Uploading ${orderFiles.length} main document(s)...`);
-    for (const file of orderFiles) {
-        if (file.size === 0) continue; // Skip empty file placeholders if any
-        const sanitizedName = sanitizeFilename(file.name);
-        const randomSuffix = generateRandomSuffix();
-        const filePath = `${userId}/${timestamp}-${randomSuffix}-${sanitizedName}`;
+async function _uploadFilesToStorage(
+    userId: string,
+    orderFiles: File[],
+    certificateFile: File | null
+): Promise<UploadResult> {
+    const uploadedFilePaths: string[] = [];
+    let certificatePath: string | undefined = undefined;
+    const timestamp = Date.now();
+    const storageBucket = "documents";
 
-        console.log(`API Route: Uploading ${file.name} to ${filePath}`);
-        const { error: uploadError } = await supabase.storage
-          .from("documents")
-          .upload(filePath, file);
+    console.log(`API Route: Uploading ${orderFiles.length} main document(s) for user ${userId}...`);
+    try {
+        for (const file of orderFiles) {
+            const sanitizedName = sanitizeFilename(file.name);
+            const randomSuffix = generateRandomSuffix();
+            const filePath = `${userId}/${timestamp}-${randomSuffix}-${sanitizedName}`;
 
-        if (uploadError) {
-            console.error(`API Error: Failed to upload ${file.name}. Error:`, uploadError);
-            // ABORT on first failure of a main document
-            // Note: Files uploaded before this error are now orphaned.
-            return jsonErrorResponse(500, `Server Error: Failed to upload file '${file.name}'. ${uploadError.message}`);
+            console.log(`API Route: Uploading ${file.name} to bucket '${storageBucket}' at path ${filePath}`);
+            const { error: uploadError } = await supabase.storage
+                .from(storageBucket)
+                .upload(filePath, file);
+
+            if (uploadError) {
+                console.error(`API Error: Failed to upload ${file.name}. Error:`, uploadError);
+
+                throw new Error(`Server Error: Failed to upload file '${file.name}'. ${uploadError.message}`);
+            }
+            uploadedFilePaths.push(filePath);
+            console.log(`API Route: Successfully uploaded ${file.name}`);
         }
-        uploadedFilePaths.push(filePath);
-        console.log(`API Route: Successfully uploaded ${file.name}`);
-    }
 
-    // Upload certificate file if applicable
-    if (isDisadvantaged && certificateFile && certificateFile.size > 0) {
-        console.log("API Route: Uploading certificate file...");
-        const sanitizedName = sanitizeFilename(certificateFile.name);
-        const randomSuffix = generateRandomSuffix();
-        const certFilePath = `${userId}/${timestamp}-certificate-${randomSuffix}-${sanitizedName}`;
+        if (certificateFile) {
+            console.log("API Route: Uploading certificate file...");
+            const sanitizedName = sanitizeFilename(certificateFile.name);
+            const randomSuffix = generateRandomSuffix();
+            const certFilePath = `${userId}/${timestamp}-certificate-${randomSuffix}-${sanitizedName}`;
 
-        console.log(`API Route: Uploading ${certificateFile.name} to ${certFilePath}`);
-        const { error: certUploadError } = await supabase.storage
-            .from("documents")
-            .upload(certFilePath, certificateFile);
+            console.log(`API Route: Uploading ${certificateFile.name} to bucket '${storageBucket}' at path ${certFilePath}`);
+            const { error: certUploadError } = await supabase.storage
+                .from(storageBucket)
+                .upload(certFilePath, certificateFile);
 
-        if (certUploadError) {
-             console.error(`API Error: Failed to upload certificate ${certificateFile.name}. Error:`, certUploadError);
-             // Decide: Abort or continue without certificate? Let's abort for consistency.
-             // Note: Main files uploaded before this are now orphaned.
-             return jsonErrorResponse(500, `Server Error: Failed to upload certificate file '${certificateFile.name}'. ${certUploadError.message}`);
+            if (certUploadError) {
+                console.error(`API Error: Failed to upload certificate ${certificateFile.name}. Error:`, certUploadError);
+                throw new Error(`Server Error: Failed to upload certificate file '${certificateFile.name}'. ${certUploadError.message}`);
+            }
+            certificatePath = certFilePath;
+            console.log(`API Route: Successfully uploaded certificate ${certificateFile.name}`);
         }
-        certificatePath = certFilePath;
-        console.log(`API Route: Successfully uploaded certificate ${certificateFile.name}`);
+
+        console.log("API Route: All required file uploads completed successfully.");
+        return { uploadedFilePaths, certificatePath };
+
+    } catch (error: any) {
+
+        console.error("API Error: Error during file upload process.", error);
+        if (error.message.startsWith("Server Error:")) {
+            throw error; 
+        } else {
+            throw new Error(`Server Error: An unexpected error occurred during file processing. ${error.message}`);
+        }
+    }
+}
+
+export const POST: APIRoute = async ({ request, locals, clientAddress }: APIContext) => {
+    console.log("API Route: POST /api/orders/create invoked.");
+
+    const userId = locals.userId;
+    if (!userId) {
+
+        return jsonErrorResponse(401, "Unauthorized.");
+    }
+    console.log(`API Route: User authenticated via middleware. User ID: ${userId}`);
+
+    let formData: FormData;
+    try {
+        formData = await request.formData();
+    } catch (error: any) {
+        console.error("API Error: Failed to parse FormData.", error);
+        return jsonErrorResponse(400, "Bad Request: Invalid form data.");
     }
 
-    console.log("API Route: All required file uploads completed successfully.");
-
-  } catch (error: any) {
-      // Catch any unexpected errors during the upload loops
-      console.error("API Error: Unexpected error during file upload process.", error);
-      return jsonErrorResponse(500, `Server Error: An unexpected error occurred during file processing. ${error.message}`);
-  }
-
-
-  // --- Database Interaction (Only if all uploads succeeded) ---
-  try {
-    console.log(`API Route: Calling createOrder service for user ${userId} with name ${ordererName}`);
-
-    // Note: pageCount and totalPrice are undefined here as we aren't calculating them yet.
-    const newOrder = await createOrder(
-        userId,
-        ordererName,
-        phone,
-        packageTier,
-        isDisadvantaged,
-        isSchool,
-        uploadedFilePaths,
-        certificatePath,
-        undefined, // pageCount - deferred
-        undefined  // totalPrice - deferred
-    );
-
-    console.log("API Route: Order created successfully in database:", newOrder.id);
-    return jsonResponse(201, newOrder); // Return the created order object
-
-  } catch (error: any) {
-    // Handle errors from the createOrder service (validation, DB errors)
-    console.error("API Error (POST /api/orders/create - Service Call):", error.message);
-    // Note: Files are already uploaded and potentially orphaned if DB insert fails.
-    if (error.message.startsWith("Validation Error:")) {
-        return jsonErrorResponse(400, error.message);
+    const validationResult = await _parseAndValidateFormData(formData);
+    if (validationResult instanceof Response) {
+        return validationResult; 
     }
-    if (error.message.startsWith("Database Error:")) {
-         return jsonErrorResponse(500, "Failed to save order details after uploading files.");
+
+    const {
+        ordererName, phone, packageSliderValue, isDisadvantaged, isSchool,
+        turnstileToken, orderFiles, certificateFile
+    } = validationResult;
+
+    const packageTier = packageTiers[packageSliderValue]; 
+
+    try {
+        console.log("API Route: Verifying Turnstile token...");
+
+        const forwardedIp = request.headers.get('x-nf-client-connection-ip');
+        const remoteIp = forwardedIp || clientAddress; 
+        if (!remoteIp) console.warn("API Warning: Could not determine client IP for Turnstile verification.");
+
+        await verifyTurnstileToken(turnstileToken, remoteIp);
+        console.log("API Route: Turnstile verification successful.");
+    } catch (error: any) {
+        console.warn("API Route: Turnstile verification failed.", error.message);
+        if (error.message.startsWith("Server configuration error")) {
+            return jsonErrorResponse(500, error.message); 
+        }
+
+        return jsonErrorResponse(403, `CAPTCHA verification failed: ${error.message}`);
     }
-    // Catch specific DB constraint errors if needed (e.g., duplicate order check)
-    return jsonErrorResponse(500, `An unexpected server error occurred while saving the order: ${error.message}`);
-  }
+
+    let uploadResult: UploadResult;
+    try {
+        uploadResult = await _uploadFilesToStorage(userId, orderFiles, certificateFile);
+    } catch (error: any) {
+
+        return jsonErrorResponse(500, error.message); 
+    }
+
+    try {
+        console.log(`API Route: Calling createOrder service for user ${userId}...`);
+
+        const newOrder = await createOrder(
+            userId,
+            ordererName,
+            phone,
+            packageTier,
+            isDisadvantaged,
+            isSchool,
+            uploadResult.uploadedFilePaths, 
+            uploadResult.certificatePath, 
+            undefined, 
+            undefined  
+        );
+
+        console.log("API Route: Order created successfully in database:", newOrder.id);
+        return jsonResponse(201, newOrder); 
+
+    } catch (error: any) {
+
+        console.error("API Error (POST /api/orders/create - Service Call):", error.message);
+
+        if (error.message.startsWith("Validation Error:")) {
+            return jsonErrorResponse(400, error.message);
+        }
+        if (error.message.startsWith("Database Error:") || error.message.startsWith("Permission Denied:")) {
+
+             return jsonErrorResponse(500, `Failed to save order details after uploading files. ${error.message}`);
+        }
+        return jsonErrorResponse(500, `An unexpected server error occurred while saving the order: ${error.message}`);
+    }
 };
 ```
 ---
 
 `src/scripts/formHandler.ts`:
 ```
-// src/utils/formHandler.ts
-import type { FormSubmitOptions } from '../types/types';
+import type { FormSubmitOptions as SimpleFormSubmitOptions } from '../types/types'; 
 
-export async function submitFormData(options: FormSubmitOptions): Promise<void> {
+export async function submitFormData(options: SimpleFormSubmitOptions): Promise<void> {
   const {
-    formElement, // Needed for reset on success
+    formElement, 
     statusElement,
     submitButton,
     preparePayload,
@@ -1249,34 +2047,30 @@ export async function submitFormData(options: FormSubmitOptions): Promise<void> 
     endpoint = formElement.action,
     method = formElement.method || 'POST',
     submittingText = 'Submitting...',
-    submitText = submitButton?.dataset.originalText || 'Submit', // Use data attribute or default
+
   } = options;
 
-  // Store original text if not already done
   if (submitButton && !submitButton.dataset.originalText) {
-      submitButton.dataset.originalText = submitButton.textContent || 'Submit';
+    submitButton.dataset.originalText = submitButton.textContent || 'Submit';
   }
+
   const originalButtonText = submitButton?.dataset.originalText || 'Submit';
 
-  // Clear previous status
   if (statusElement) {
     statusElement.textContent = '';
     statusElement.style.color = 'inherit';
   }
 
-  // Prepare payload - validation happens here
   const payload = preparePayload();
   if (payload === null) {
-    // Validation failed, message should be handled by preparePayload/onError caller
-    // Ensure button is re-enabled if it was disabled before this check
-     if (submitButton && submitButton.disabled) {
-        submitButton.disabled = false;
-        submitButton.textContent = originalButtonText;
-     }
-    return; // Exit early
+
+    if (submitButton && submitButton.disabled) {
+      submitButton.disabled = false;
+      submitButton.textContent = originalButtonText;
+    }
+    return; 
   }
 
-  // Manage UI state: Disable button
   if (submitButton) {
     submitButton.disabled = true;
     submitButton.textContent = submittingText;
@@ -1292,39 +2086,36 @@ export async function submitFormData(options: FormSubmitOptions): Promise<void> 
       body: JSON.stringify(payload),
     });
 
-    let data;
+    let data: any;
     try {
-      // Attempt to parse JSON, works even for errors if body is JSON
+
       data = await response.json();
     } catch (jsonError) {
-      // Handle cases where response is not JSON (e.g., 500 HTML error page)
+
       if (!response.ok) {
-        // Throw generic HTTP error if parsing failed on an error response
+
         throw new Error(`HTTP error! Status: ${response.status}, Response not JSON.`);
       }
-      // If response was ok but not JSON, might be unexpected. Log and treat as success with no data.
+
       console.warn("Response was OK but not valid JSON.");
-      data = null; // Success, but no data parsed
+      data = null; 
     }
 
     if (!response.ok) {
-      // Use error message from parsed JSON body if available, otherwise default
+
       const errorMessage = data?.error || `HTTP error! Status: ${response.status}`;
       throw new Error(errorMessage);
     }
 
-    // Call the success callback
     onSuccess(data, formElement);
 
   } catch (error: any) {
     console.error('Form submission error:', error);
-    // Call the error callback
+
     onError(error, statusElement);
-    // Note: error is not re-thrown here, allowing the flow to complete in finally.
-    // The onError callback is responsible for user feedback.
 
   } finally {
-    // Re-enable button and restore text in finally block to ensure it always happens
+
     if (submitButton) {
       submitButton.disabled = false;
       submitButton.textContent = originalButtonText;
@@ -1332,41 +2123,178 @@ export async function submitFormData(options: FormSubmitOptions): Promise<void> 
   }
 }
 
-/**
- * Sets up a standard event listener for form submission that calls submitFormData.
- * Use this for simple forms without pre-submission steps like auth checks.
- * @param options - Configuration for the form submission.
- */
-export function setupFormSubmitListener(options: FormSubmitOptions): void {
-   const { formElement } = options;
-   if (!formElement) {
-       console.error('Form submission listener requires a formElement.');
-       return;
-   }
+export function setupFormSubmitListener(options: SimpleFormSubmitOptions): void {
+  const { formElement } = options;
+  if (!formElement) {
+    console.error('Form submission listener requires a formElement.');
+    return;
+  }
 
-   formElement.addEventListener('submit', async (event) => {
-        event.preventDefault();
-        // Directly call the async submission logic
-        await submitFormData(options);
-   });
+  formElement.addEventListener('submit', async (event) => {
+    event.preventDefault(); 
+    await submitFormData(options); 
+  });
 }
 
-/**
- * Helper function to reset a Cloudflare Turnstile widget within a given form.
- * @param formElement - The form containing the Turnstile widget.
- */
 export function resetTurnstileWidget(formElement: HTMLFormElement | null): void {
-    if (!formElement) return;
-    try {
-        // Find the widget using its class
-        const widgetElement = formElement.querySelector<HTMLElement>('.cf-turnstile');
-        if (widgetElement && typeof (window as any).turnstile?.reset === 'function') {
-           (window as any).turnstile.reset(widgetElement);
-           console.log("Turnstile widget reset.");
-        }
-    } catch (e) {
-        console.warn("Could not reset Turnstile widget", e);
+  if (!formElement) return;
+  try {
+
+    const widgetElement = formElement.querySelector<HTMLElement>('.cf-turnstile');
+
+    if (widgetElement && typeof (window as any).turnstile?.reset === 'function') {
+      (window as any).turnstile.reset(widgetElement); 
+      console.log("Turnstile widget reset.");
+    } else if (widgetElement) {
+
+      console.warn("Turnstile widget found, but reset function is not available on window.turnstile.");
     }
+
+  } catch (e) {
+
+    console.warn("Could not reset Turnstile widget", e);
+  }
+}
+
+export interface OrderFormSubmitOptions {
+  formElement: HTMLFormElement;
+  statusElement: HTMLElement | null;
+  submitButton: HTMLButtonElement | null;
+
+  authEndpoint?: string;
+
+  onSuccess: (data: any, formElement: HTMLFormElement) => void;
+  onError: (error: Error, statusElement: HTMLElement | null) => void;
+
+  initializingText?: string;
+  submittingText?: string;
+
+}
+
+export async function submitOrderForm(options: OrderFormSubmitOptions): Promise<void> {
+  const {
+    formElement,
+    statusElement,
+    submitButton,
+    authEndpoint = '/api/auth/anonymous', 
+    onSuccess,
+    onError,
+    initializingText = 'Initializing...',
+    submittingText = 'Submitting Order...',
+  } = options;
+
+  if (!formElement || !submitButton || !statusElement) {
+    console.error("submitOrderForm requires formElement, submitButton, and statusElement.");
+
+    if (statusElement) {
+      statusElement.textContent = "Form initialization error.";
+      statusElement.style.color = "red";
+    }
+    return; 
+  }
+
+  if (!submitButton.dataset.originalText) {
+    submitButton.dataset.originalText = submitButton.textContent || 'Submit Order';
+  }
+  const originalButtonText = submitButton.dataset.originalText; 
+
+  statusElement.textContent = '';
+  statusElement.style.color = 'inherit';
+
+  submitButton.disabled = true;
+  submitButton.textContent = initializingText;
+  statusElement.textContent = "Ensuring session..."; 
+
+  try {
+
+    console.log(`Calling anonymous auth endpoint: ${authEndpoint}`);
+    const authResponse = await fetch(authEndpoint, { method: "POST" });
+
+    if (!authResponse.ok) {
+      let errorMsg = `Authentication setup failed (${authResponse.status})`;
+      try {
+
+        const errorData = await authResponse.json();
+        errorMsg = errorData.error || errorMsg;
+      } catch (e) {
+
+        console.warn(`Auth response was not OK (${authResponse.status}) and not JSON.`);
+      }
+
+      throw new Error(errorMsg);
+    }
+    console.log("Anonymous session ensured successfully.");
+    statusElement.textContent = "Preparing order..."; 
+
+    const formData = new FormData(formElement);
+
+    const apiEndpoint = formElement.action; 
+    if (!apiEndpoint) {
+      throw new Error("Form action attribute is missing or empty.");
+    }
+    console.log(`Submitting FormData to API endpoint: ${apiEndpoint}`);
+    submitButton.textContent = submittingText; 
+    statusElement.textContent = "Submitting order (this may take a moment)..."; 
+
+    const response = await fetch(apiEndpoint, {
+      method: "POST", 
+      body: formData,
+
+    });
+
+    let responseData: any = null; 
+    try {
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        responseData = await response.json(); 
+      } else if (!response.ok) {
+
+        const textResponse = await response.text();
+        console.error(`Server error response (non-JSON): Status ${response.status}, Body: ${textResponse.substring(0, 500)}...`);
+
+        throw new Error(`Server error: Status ${response.status}. Check server logs for details.`);
+      } else {
+
+        console.warn(`Response from ${apiEndpoint} was OK (${response.status}) but not JSON.`);
+
+      }
+    } catch (parseError: any) {
+
+      console.error("Error processing server response:", parseError);
+      if (!response.ok) {
+
+        throw new Error(`Failed to process server error response: Status ${response.status}`);
+      } else {
+
+        throw new Error(`Failed to process successful server response: ${parseError.message || "Unknown processing error"}`);
+      }
+    }
+
+    if (!response.ok) {
+
+      const errorMessage = responseData?.error || `Submission failed with status: ${response.status}`;
+      throw new Error(errorMessage);
+    }
+
+    console.log("Order form submitted successfully via helper.");
+    onSuccess(responseData, formElement); 
+
+  } catch (error: any) {
+
+    console.error("Order submission process error:", error);
+
+    onError(error, statusElement); 
+
+  } finally {
+
+    console.log("Resetting form UI state and Turnstile widget.");
+    resetTurnstileWidget(formElement); 
+
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent = originalButtonText;
+    }
+  }
 }
 ```
 ---
@@ -1555,13 +2483,14 @@ export interface Order {
   page_count?: number | null; // Optional for now
   total_price?: number | null; // Optional for now, Assuming bigint maps to number safely for JS
   uploaded_file_urls?: string[] | null; // Array of storage paths/URLs for main documents
-  is_disadvantaged: boolean; // ADDED
-  is_school: boolean; // ADDED
-  certificate_url?: string | null; // ADDED: Path/URL for the certificate file
+  is_disadvantaged: boolean;
+  is_school: boolean;
+  certificate_url?: string | null;
+  translated_file_url?: string | null; // <-- ADD THIS LINE
   // Add any other relevant fields from your orders table
 }
 
-// FormSubmitOptions interface remains unchanged - but NOTE it won't be used by order.astro directly
+// FormSubmitOptions interface remains unchanged
 export interface FormSubmitOptions {
   formElement: HTMLFormElement;
   statusElement: HTMLElement | null;
