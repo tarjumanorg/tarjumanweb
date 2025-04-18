@@ -1,5 +1,5 @@
 ---
-// src/pages/admin/orders/index.astro
+
 import AdminLayout from "../../../layouts/AdminLayout.astro";
 import type { Order } from "../../../types/types";
 
@@ -7,12 +7,10 @@ let orders: Order[] = [];
 let errorMessage: string | null = null;
 
 try {
-  // Make API call server-side to fetch orders
-  // Note: Using Astro.url.origin ensures correct host in SSR/prod
+
   const response = await fetch(`${Astro.url.origin}/api/admin/orders`, {
      headers: {
-         // Forward cookies from the incoming request to the API route
-         // This is crucial for the API route to authenticate the admin user
+
          'Cookie': Astro.request.headers.get('cookie') || ''
      }
   });
@@ -26,7 +24,7 @@ try {
 } catch (e: any) {
    console.error("Error fetching admin orders:", e);
    errorMessage = e.message || "An unexpected error occurred.";
-   // Don't expose detailed errors potentially containing sensitive info to client
+
    errorMessage = "Could not load orders. Please check server logs or try again later.";
 }
 
@@ -35,7 +33,7 @@ const formatDate = (dateString: string | null | undefined) => {
     try {
         return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(dateString));
     } catch {
-        return dateString; // Fallback
+        return dateString; 
     }
 }
 ---

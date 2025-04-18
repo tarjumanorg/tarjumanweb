@@ -1,9 +1,9 @@
 import type { APIRoute } from "astro";
-import { deleteAuthCookies } from '../../../utils/auth'; // <-- IMPORT ADDED
+import { deleteAuthCookies } from '../../../utils/auth';
 
 export const GET: APIRoute = async ({ cookies, redirect }) => {
-  // Use the utility function to delete cookies
-  deleteAuthCookies(cookies); // <-- REPLACED manual deletes
+
+  deleteAuthCookies(cookies);
 
   return redirect("/signin");
 };

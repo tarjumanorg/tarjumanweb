@@ -1,5 +1,5 @@
 ---
-// src/components/Reviews.astro
+
 import type { GuestbookEntry } from "../types/types";
 interface Props {
   reviews: GuestbookEntry[];
@@ -10,7 +10,7 @@ const { reviews } = Astro.props;
 <div>
   <form id="guestbook-form" method="post" action="/api/guestbook">
     <h3>Leave a message</h3>
-    {/* Added min-height and margin for better layout */}
+    {}
     <div
       id="form-status"
       aria-live="polite"
@@ -38,7 +38,6 @@ const { reviews } = Astro.props;
         name="message"
       />
     </div>
-    {/* Added data-original-text attribute for handler */}
     <button id="submit-button" type="submit" data-original-text="Submit">
       Submit
     </button>
@@ -54,7 +53,7 @@ const { reviews } = Astro.props;
               <p>
                 <strong>{review.name}</strong>
               </p>{" "}
-              {/* Made name bold */}
+              {}
               <p>{review.message}</p>
             </li>
           ))}
@@ -105,11 +104,9 @@ const { reviews } = Astro.props;
         statusDiv.style.color = "green";
       }
       formElement.reset();
-      // IMPORTANT: This simple example doesn't dynamically update the list above.
-      // A page refresh would be needed to see the new entry, or use
-      // more advanced techniques (HTMX, Alpine, framework component).
+
       console.log("Submitted data:", data);
-      // Optional: Clear success message after a delay
+
       setTimeout(() => {
         if (statusDiv) statusDiv.textContent = "";
       }, 5000);
@@ -120,11 +117,9 @@ const { reviews } = Astro.props;
         statusElement.textContent = `Error: ${error.message || "Could not submit message."}`;
         statusElement.style.color = "red";
       }
-      // Optional: Clear error message after a delay
-      // setTimeout(() => { if(statusDiv) statusDiv.textContent = ''; }, 8000);
+
     };
 
-    // Define options for the handler
     const options: FormSubmitOptions = {
       formElement: form,
       statusElement: statusDiv,
@@ -132,11 +127,10 @@ const { reviews } = Astro.props;
       preparePayload: preparePayloadForReview,
       onSuccess: onReviewSuccess,
       onError: onReviewError,
-      // endpoint and method will be taken from the form's action and method attributes
-      submitText: "Submit", // Explicitly set restore text if needed
+
+      submitText: "Submit", 
     };
 
-    // Use the setup function for simple forms
     setupFormSubmitListener(options);
   } else {
     console.error(

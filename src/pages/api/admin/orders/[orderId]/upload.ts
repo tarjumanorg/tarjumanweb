@@ -1,16 +1,13 @@
-// src/pages/api/admin/orders/[orderId]/upload.ts
 import type { APIRoute } from "astro";
-import { supabaseAdmin } from "../../../../../lib/supabaseAdmin"; // Uses admin client
+import { supabaseAdmin } from "../../../../../lib/supabaseAdmin"; 
 import { jsonResponse, jsonErrorResponse } from '../../../../../utils/apiResponse';
 import { handleSupabaseError } from "../../../../../utils/supabaseUtils";
 import { sanitizeFilename } from "../../../../../utils/filenameUtils";
 import type { Order } from "../../../../../types/types";
 
-// --- Configuration ---
-const SIGNED_URL_EXPIRES_IN = 3600; // 1 hour in seconds
+const SIGNED_URL_EXPIRES_IN = 3600; 
 const STORAGE_BUCKET = 'documents';
 
-// --- Helper Functions ---
 const generateRandomSuffix = (length = 6) => Math.random().toString(36).substring(2, 2 + length);
 
 function extractFilename(path: string | null | undefined): string | null {
@@ -20,11 +17,10 @@ function extractFilename(path: string | null | undefined): string | null {
         return decodedPath.split('/').pop() || decodedPath;
     } catch (e) {
         console.warn(`Failed to decode or extract filename from path: ${path}`, e);
-        return path; // Fallback
+        return path; 
     }
 }
 
-// --- Structure for File Info ---
 interface SignedFileInfo {
     path: string;
     filename: string | null;
@@ -36,18 +32,17 @@ export const POST: APIRoute = async ({ request, params, locals }) => {
     const orderId = params.orderId;
     const timestamp = Date.now();
 
-    if (!adminUserId) { /* ... (Auth check - unchanged) ... */
+    if (!adminUserId) { 
         console.error(`API Error (POST /api/admin/orders/${orderId}/upload): Admin user ID not found in locals.`);
         return jsonErrorResponse(401, "Unauthorized: Admin session context missing.");
     }
     console.log(`API Route: POST /api/admin/orders/${orderId}/upload invoked by verified admin user ${adminUserId}. Using service client.`);
 
-    if (!orderId || isNaN(Number(orderId))) { /* ... (ID validation - unchanged) ... */
+    if (!orderId || isNaN(Number(orderId))) { 
         return jsonErrorResponse(400, "Invalid Order ID.");
     }
     const idNum = Number(orderId);
 
-    // 1. Get the original user ID (unchanged)
     let originalUserId: string;
     try {
         console.log(`API Route: Fetching original user ID for order ${idNum} using service client...`);
@@ -70,7 +65,6 @@ export const POST: APIRoute = async ({ request, params, locals }) => {
          return jsonErrorResponse(500, `Failed to retrieve order details: ${error.message}`);
     }
 
-    // 2. Process FormData (unchanged)
     let file: File | null = null;
     let filename = 'untitled_translation';
     try {
@@ -88,7 +82,6 @@ export const POST: APIRoute = async ({ request, params, locals }) => {
          return jsonErrorResponse(400, "Bad Request: Invalid form data.");
     }
 
-    // 3. Upload file using ADMIN client (unchanged, path structure is important)
     const sanitizedName = sanitizeFilename(filename);
     const randomSuffix = generateRandomSuffix();
     const filePath = `${originalUserId}/translations/${idNum}-${timestamp}-${randomSuffix}-${sanitizedName}`;
@@ -110,15 +103,14 @@ export const POST: APIRoute = async ({ request, params, locals }) => {
          return jsonErrorResponse(500, `Failed to upload file: ${error.message || 'An unexpected storage error occurred.'}`);
     }
 
-    // 4. Update the order record using ADMIN client
     console.log(`API Route: Updating order ${idNum} via service client with translated_file_url: ${filePath}`);
     let updatedOrder: Order | null = null;
     try {
         const { data, error: updateError } = await supabaseAdmin
             .from("orders")
-            .update({ translated_file_url: filePath }) // Update with the raw path
+            .update({ translated_file_url: filePath }) 
             .eq("id", idNum)
-            .select() // Return updated order
+            .select() 
             .single();
 
         handleSupabaseError(updateError, `update order ${idNum} with translated file URL (admin service)`);
@@ -137,9 +129,8 @@ export const POST: APIRoute = async ({ request, params, locals }) => {
          return jsonErrorResponse(statusCode, `Failed to update order with file URL: ${error.message}`);
     }
 
-    // 5. Generate Signed URL for the *newly* uploaded file path
     let translatedFileInfo: SignedFileInfo | null = null;
-    if (updatedOrder?.translated_file_url) { // Use the path confirmed in the DB
+    if (updatedOrder?.translated_file_url) { 
         const dbFilePath = updatedOrder.translated_file_url;
         const filename = extractFilename(dbFilePath);
         try {
@@ -149,7 +140,7 @@ export const POST: APIRoute = async ({ request, params, locals }) => {
 
             if (signError) {
                 console.error(`API Error: Failed to create signed URL for newly uploaded path "${dbFilePath}":`, signError.message);
-                // Proceed but with null signedUrl
+
                 translatedFileInfo = { path: dbFilePath, filename, signedUrl: null };
             } else {
                 translatedFileInfo = { path: dbFilePath, filename, signedUrl: signedUrlData?.signedUrl || null };
@@ -160,11 +151,10 @@ export const POST: APIRoute = async ({ request, params, locals }) => {
         }
     }
 
-    // 6. Construct and return the final response
     const responseData = {
-        ...updatedOrder, // Include all updated order fields
-        translated_file_info: translatedFileInfo, // Add structured info
-        translated_file_url: undefined, // Remove original URL field
+        ...updatedOrder, 
+        translated_file_info: translatedFileInfo, 
+        translated_file_url: undefined, 
     };
 
     return jsonResponse(200, responseData);

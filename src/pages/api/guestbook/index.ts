@@ -4,7 +4,6 @@ import { getAllGuestbookEntries, createGuestbookEntry } from "../../../services/
 import type { GuestbookEntry } from "../../../types/types";
 import { jsonResponse, jsonErrorResponse } from '../../../utils/apiResponse';
 
-// GET handler remains unchanged
 export const GET: APIRoute = async () => {
   console.log("API Route: GET /api/guestbook invoked.");
   try {
@@ -19,15 +18,12 @@ export const GET: APIRoute = async () => {
 export const POST: APIRoute = async ({ request, locals }) => {
   console.log("API Route: POST /api/guestbook invoked.");
 
-  // --- Explicit Authentication Check ---
   const userId = locals.userId;
   if (!userId) {
       console.log("API Error: Unauthorized access attempt to POST /api/guestbook.");
-      // Middleware should prevent this, but this is an explicit safeguard.
       return jsonErrorResponse(401, "Unauthorized: Authentication required.");
   }
   console.log(`API Route: User authenticated. User ID: ${userId}. Ready to create guestbook entry.`);
-  // --- End Explicit Authentication Check ---
 
   try {
     let name: string;
@@ -46,7 +42,6 @@ export const POST: APIRoute = async ({ request, locals }) => {
         return jsonErrorResponse(400, "Bad Request: Invalid JSON body.");
     }
 
-    // Note: userId confirms authentication but isn't directly used by createGuestbookEntry here.
     const newEntry = await createGuestbookEntry(name, message);
 
     console.log("API Route: Guestbook entry created successfully.");
@@ -55,7 +50,6 @@ export const POST: APIRoute = async ({ request, locals }) => {
   } catch (error: any) {
     console.error("API Error (POST /api/guestbook):", error.message);
 
-    // Error handling remains the same
     if (error.message.startsWith("Validation Error:")) {
          return jsonErrorResponse(400, error.message);
     }

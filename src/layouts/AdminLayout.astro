@@ -1,5 +1,5 @@
 ---
-// src/layouts/AdminLayout.astro
+
 interface Props {
   title: string;
 }
@@ -14,7 +14,6 @@ const siteTitle = "Tarjuman Admin";
     <meta name="viewport" content="width=device-width" />
     <meta name="generator" content={Astro.generator} />
     <title>{title} | {siteTitle}</title>
-    {/* Basic styling - consider a separate CSS file */}
     <style>
       body { font-family: sans-serif; margin: 0; }
       nav { background-color: #333; padding: 1rem; }
@@ -35,7 +34,7 @@ const siteTitle = "Tarjuman Admin";
         border: 1px solid #ccc;
         border-radius: 3px;
         width: 100%;
-        box-sizing: border-box; /* Include padding in width */
+        box-sizing: border-box; 
       }
        input[type="file"] { width: auto; }
        button { background-color: #007bff; color: white; border: none; cursor: pointer; }
@@ -52,7 +51,7 @@ const siteTitle = "Tarjuman Admin";
         <a href="/admin"><strong>{siteTitle}</strong></a>
         <a href="/admin/orders">Manage Orders</a>
         <a href="/api/auth/signout" style="float: right;">Sign Out</a>
-        <!-- Add other admin links here -->
+        
       </div>
     </nav>
     <main>
@@ -61,4 +60,3 @@ const siteTitle = "Tarjuman Admin";
         <slot />
       </div>
     </main>
-

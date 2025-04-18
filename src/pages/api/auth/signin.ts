@@ -2,7 +2,7 @@ import type { APIRoute } from "astro";
 import { supabase } from "../../../lib/supabase";
 import type { Provider } from "@supabase/supabase-js";
 import { CALLBACK_PATH } from "../../../utils/constants";
-import { jsonErrorResponse } from '../../../utils/apiResponse'; // <-- IMPORT ADDED
+import { jsonErrorResponse } from '../../../utils/apiResponse';
 
 export const POST: APIRoute = async ({ request, cookies, redirect, url }) => {
   const formData = await request.formData();
@@ -20,13 +20,10 @@ export const POST: APIRoute = async ({ request, cookies, redirect, url }) => {
 
     if (error) {
       console.error("OAuth Error:", error.message);
-      // Use utility function for error response
-      return jsonErrorResponse(500, error.message); // <-- UPDATED
+      return jsonErrorResponse(500, error.message);
     }
 
-    // Redirect remains unchanged
     return redirect(data.url);
   }
-  // Use utility function for error response
-  return jsonErrorResponse(400, "Invalid sign-in method"); // <-- UPDATED
+  return jsonErrorResponse(400, "Invalid sign-in method");
 };

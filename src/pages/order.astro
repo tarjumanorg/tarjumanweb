@@ -1,5 +1,5 @@
 ---
-// src/pages/order.astro
+
 import Layout from "../layout/Layout.astro";
 
 const title = "Place Your Order";
@@ -131,7 +131,6 @@ const turnstileSiteKey =
   import { submitOrderForm } from "../scripts/formHandler";
   import type { OrderFormSubmitOptions } from "../scripts/formHandler";
 
-  // --- Element References ---
   const form = document.getElementById("order-form") as HTMLFormElement | null;
   const orderFilesInput = document.getElementById(
     "order-files",
@@ -167,14 +166,12 @@ const turnstileSiteKey =
     "order-status",
   ) as HTMLElement | null;
 
-  // --- Package Mapping (Client-side for display) ---
   const packageMap: { [key: string]: string } = {
     "1": "Basic",
     "2": "Standard",
     "3": "Premium",
   };
 
-  // --- Initial Setup ---
   if (
     form &&
     orderFilesInput &&
@@ -189,13 +186,12 @@ const turnstileSiteKey =
     submitButton &&
     statusDiv
   ) {
-    // 1. Slider Event Listener
+
     packageSlider.addEventListener("input", () => {
       const selectedValue = packageSlider.value;
       packageDisplay.textContent = packageMap[selectedValue] || "Unknown";
     });
 
-    // 2. Disadvantage Checkbox Listener
     disadvantageCheckbox.addEventListener("change", () => {
       if (disadvantageCheckbox.checked) {
         certificateContainer.classList.remove("hidden");
@@ -207,11 +203,9 @@ const turnstileSiteKey =
       }
     });
 
-    // 3. Form Submit Listener (Uses the new helper)
     form.addEventListener("submit", async (event) => {
-      event.preventDefault(); // Prevent default HTML form submission
+      event.preventDefault(); 
 
-      // --- Client-Side Validation ---
       if (
         !orderFilesInput.files ||
         orderFilesInput.files.length === 0 ||
@@ -255,7 +249,6 @@ const turnstileSiteKey =
         return;
       }
 
-      // --- Define Callbacks for the Helper ---
       const onSuccessHandler = (data: any, formElement: HTMLFormElement) => {
         if (statusDiv) {
           statusDiv.textContent = `Order submitted successfully! Order ID: ${data?.id || "[Unknown ID]"}`;
@@ -285,17 +278,15 @@ const turnstileSiteKey =
         }
       };
 
-      // --- Prepare Options for the Helper ---
       const options: OrderFormSubmitOptions = {
         formElement: form,
         statusElement: statusDiv,
         submitButton: submitButton,
         onSuccess: onSuccessHandler,
         onError: onErrorHandler,
-        // authEndpoint, initializingText, submittingText can use defaults from helper
+
       };
 
-      // --- Call the Form Submission Helper ---
       await submitOrderForm(options);
     });
   } else {
