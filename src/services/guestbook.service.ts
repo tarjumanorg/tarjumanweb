@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase'; 
-import type { GuestbookEntry } from '../types/types'; 
+import { GuestbookEntrySchema, type GuestbookEntry } from '../schemas/guestbook.schema';
 import { handleSupabaseError } from '../utils/supabaseUtils'; 
 
 export async function getAllGuestbookEntries(): Promise<GuestbookEntry[]> {
@@ -13,18 +13,20 @@ export async function getAllGuestbookEntries(): Promise<GuestbookEntry[]> {
 
   handleSupabaseError(error, operationContext); 
 
-  console.log("Service: Fetched entries successfully.");
-  return data as GuestbookEntry[];
-}
-
-export async function createGuestbookEntry(name: string, message: string): Promise<GuestbookEntry> {
-
-  if (!name || !message || name.trim().length === 0 || message.trim().length === 0) {
-      throw new Error("Validation Error: Name and message cannot be empty.");
+  // Validate with Zod before returning
+  const result = GuestbookEntrySchema.array().safeParse(data);
+  if (!result.success) {
+    console.error('Service: Guestbook entries response validation failed:', result.error.flatten());
+    return [];
   }
 
-  const trimmedName = name.trim();
-  const trimmedMessage = message.trim();
+  console.log("Service: Fetched entries successfully.");
+  return result.data;
+}
+
+export async function createGuestbookEntry(entry: Pick<GuestbookEntry, 'name' | 'message'>): Promise<GuestbookEntry> {
+  const trimmedName = entry.name.trim();
+  const trimmedMessage = entry.message.trim();
   const operationContext = "create guestbook entry";
 
   console.log(`Service: Creating guestbook entry for '${trimmedName}'...`);
@@ -37,10 +39,16 @@ export async function createGuestbookEntry(name: string, message: string): Promi
   handleSupabaseError(error, operationContext); 
 
   if (!data) {
+    throw new Error(`Database Error: Failed to ${operationContext}: No data returned after insert.`);
+  }
 
-      throw new Error(`Database Error: Failed to ${operationContext}: No data returned after insert.`);
+  // Validate with Zod before returning
+  const result = GuestbookEntrySchema.safeParse(data);
+  if (!result.success) {
+    console.error('Service: Guestbook entry response validation failed:', result.error.flatten());
+    throw new Error('Database Error: Invalid guestbook entry returned.');
   }
 
   console.log("Service: Created entry successfully.");
-  return data as GuestbookEntry; 
+  return result.data;
 }

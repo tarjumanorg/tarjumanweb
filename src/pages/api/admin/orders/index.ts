@@ -3,7 +3,8 @@ import type { APIRoute } from "astro";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin"; 
 import { jsonResponse, jsonErrorResponse } from '../../../../utils/apiResponse';
 import { handleSupabaseError } from "../../../../utils/supabaseUtils"; 
-import type { Order } from "../../../../types/types";
+import type { Order } from '../../../../schemas/order.schema';
+import { OrderSchema } from '../../../../schemas/order.schema';
 
 export const GET: APIRoute = async ({ locals }) => {
     const adminUserId = locals.userId; 
@@ -31,7 +32,18 @@ export const GET: APIRoute = async ({ locals }) => {
 
         handleSupabaseError(error, "fetch all orders (admin service)");
 
-        console.log(`API Route: Fetched ${data?.length ?? 0} orders using admin service client.`);
+        const ResponseOrderSchema = OrderSchema.pick({
+          id: true,
+          created_at: true,
+          orderer_name: true,
+          status: true,
+          package_tier: true,
+          user_id: true,
+        });
+        const parseResult = ResponseOrderSchema.array().safeParse(data);
+        if (!parseResult.success) {
+          console.error('Admin Orders GET response validation failed:', parseResult.error.flatten());
+  }
         return jsonResponse(200, data as Order[] || []); 
 
     } catch (error: any) {

@@ -1,8 +1,14 @@
 // src/lib/supabaseAdmin.ts
 import { createClient } from "@supabase/supabase-js";
+import { EnvSchema } from '../env.schema';
 
-const supabaseUrl = import.meta.env.PUBLIC_SUPABASE_URL;
-const supabaseServiceRoleKey = import.meta.env.SUPABASE_SERVICE_ROLE_KEY;
+const envParseResult = EnvSchema.safeParse(import.meta.env);
+if (!envParseResult.success) {
+  throw new Error('Environment variable validation failed: ' + JSON.stringify(envParseResult.error.flatten()));
+}
+
+const supabaseUrl = envParseResult.data.PUBLIC_SUPABASE_URL;
+const supabaseServiceRoleKey = envParseResult.data.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!supabaseUrl || !supabaseServiceRoleKey) {
   if (!import.meta.env.PROD) {

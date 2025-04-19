@@ -20,36 +20,44 @@ interface ValidatedFormData {
 
 async function _parseAndValidateFormData(formData: FormData): Promise<ValidatedFormData | Response> {
     try {
-        const ordererName = formData.get("orderer_name")?.toString().trim();
+        const orderer_name = formData.get("orderer_name")?.toString().trim() ?? '';
         const phone = formData.get("phone")?.toString().trim() || undefined;
-        const packageSliderValue = formData.get("package_tier_value")?.toString(); 
-        const isDisadvantaged = formData.get("is_disadvantaged") === "on";
-        const isSchool = formData.get("is_school") === "on";
-        const turnstileToken = formData.get("cf-turnstile-response")?.toString();
+        const package_tier_value = formData.get("package_tier_value")?.toString() ?? '';
+        const is_disadvantaged = formData.get("is_disadvantaged") === "on";
+        const is_school = formData.get("is_school") === "on";
+        const turnstile_token = formData.get("cf-turnstile-response")?.toString() ?? '';
         const orderFiles = formData.getAll("order_files") as File[];
         const certificateFile = formData.get("certificate_file") as File | null;
 
-        if (!ordererName) return jsonErrorResponse(400, "Bad Request: Orderer name is required.");
-
-        if (!packageSliderValue || !PACKAGE_MAP[packageSliderValue]) return jsonErrorResponse(400, "Bad Request: Invalid or missing package selection.");
-        if (!turnstileToken) return jsonErrorResponse(400, "Bad Request: CAPTCHA token is missing.");
+        const { CreateOrderInputSchema } = await import("../../../schemas/order.schema");
+        const result = CreateOrderInputSchema.safeParse({
+            orderer_name,
+            phone,
+            package_tier_value,
+            is_disadvantaged,
+            is_school,
+            turnstile_token,
+        });
+        if (!result.success) {
+            return jsonErrorResponse(400, result.error.flatten());
+        }
 
         const validOrderFiles = orderFiles.filter(f => f && f instanceof File && f.size > 0);
         if (validOrderFiles.length === 0) return jsonErrorResponse(400, "Bad Request: At least one main document file is required.");
 
         const validCertificateFile = (certificateFile && certificateFile instanceof File && certificateFile.size > 0) ? certificateFile : null;
-        if (isDisadvantaged && !validCertificateFile) return jsonErrorResponse(400, "Bad Request: Certificate of indigence is required when economic disadvantage is checked.");
-        if (!isDisadvantaged && validCertificateFile) console.warn("API Warning: Certificate file provided but disadvantage checkbox not checked. Ignoring certificate.");
+        if (is_disadvantaged && !validCertificateFile) return jsonErrorResponse(400, "Bad Request: Certificate of indigence is required when economic disadvantage is checked.");
+        if (!is_disadvantaged && validCertificateFile) console.warn("API Warning: Certificate file provided but disadvantage checkbox not checked. Ignoring certificate.");
 
         return {
-            ordererName,
+            ordererName: orderer_name,
             phone,
-            packageSliderValue, 
-            isDisadvantaged,
-            isSchool,
-            turnstileToken,
+            packageSliderValue: package_tier_value,
+            isDisadvantaged: is_disadvantaged,
+            isSchool: is_school,
+            turnstileToken: turnstile_token,
             orderFiles: validOrderFiles,
-            certificateFile: isDisadvantaged ? validCertificateFile : null 
+            certificateFile: is_disadvantaged ? validCertificateFile : null
         };
     } catch (error: any) {
         console.error("API Error: Unexpected error during FormData parsing.", error);
@@ -199,18 +207,19 @@ export const POST: APIRoute = async ({ request, locals, clientAddress }: APICont
     try {
         console.log(`API Route: Calling createOrder service for user ${userId}...`);
 
-        const newOrder = await createOrder(
-            userId,
-            ordererName,
+        const orderInput = {
+            user_id: userId,
+            orderer_name: ordererName,
             phone,
-            packageTier, 
-            isDisadvantaged,
-            isSchool,
-            uploadResult.uploadedFilePaths, 
-            uploadResult.certificatePath, 
-            undefined, 
-            undefined  
-        );
+            package_tier: packageTier,
+            is_disadvantaged: isDisadvantaged,
+            is_school: isSchool,
+            uploaded_file_urls: uploadResult.uploadedFilePaths,
+            certificate_url: uploadResult.certificatePath,
+            page_count: undefined,
+            total_price: undefined
+        };
+        const newOrder = await createOrder(orderInput);
 
         console.log("API Route: Order created successfully in database:", newOrder.id);
         return jsonResponse(201, newOrder); 

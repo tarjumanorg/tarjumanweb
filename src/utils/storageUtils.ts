@@ -1,13 +1,7 @@
 import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { SIGNED_URL_EXPIRES_IN, STORAGE_BUCKET } from "./constants";
 import { extractFilename, sanitizeFilename, generateRandomSuffix } from "./filenameUtils";
-import type { Order } from "../types/types"; 
-
-export interface SignedFileInfo {
-    path: string;
-    filename: string | null;
-    signedUrl: string | null;
-}
+import type { SignedFileInfo, Order } from '../schemas/order.schema';
 
 export async function createSignedUrlForPath(path: string | null | undefined): Promise<SignedFileInfo | null> {
     if (!path) return null;

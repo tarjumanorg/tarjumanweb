@@ -1,6 +1,8 @@
-import type { Order } from "../types/types";
-import type { SignedFileInfo, ApiOrderResponse as ClientApiOrderResponse } from "../utils/storageUtils";
+import type { Order } from '../schemas/order.schema';
+import type { SignedFileInfo } from '../schemas/order.schema';
+import type { ApiOrderResponse as ClientApiOrderResponse } from "../utils/storageUtils";
 import { displayStatus } from "./uiUtils";
+import { UpdateOrderPayloadSchema } from '../schemas/order.schema';
 
 type UpdatePayload = {
     status?: Order['status'] | null;
@@ -66,6 +68,14 @@ export async function handleOrderUpdateSubmit(
 
     if (Object.keys(payload).length === 0) {
         displayStatus(statusElement, 'No changes detected to update.', 'info');
+        return;
+    }
+
+    // Validate with Zod before sending
+    const zodResult = UpdateOrderPayloadSchema.safeParse(payload);
+    if (!zodResult.success) {
+        const errorMessages = Object.values(zodResult.error.flatten().fieldErrors).flat().join(' ');
+        displayStatus(statusElement, `Validation error: ${errorMessages}`, 'error');
         return;
     }
 

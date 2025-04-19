@@ -1,13 +1,21 @@
 // src/pages/api/guestbook/index.ts
 import type { APIRoute } from "astro";
 import { getAllGuestbookEntries, createGuestbookEntry } from "../../../services/guestbook.service";
-import type { GuestbookEntry } from "../../../types/types";
+import type { GuestbookEntry } from '../../../schemas/guestbook.schema';
 import { jsonResponse, jsonErrorResponse } from '../../../utils/apiResponse';
+import { GuestbookEntrySchema } from '../../../schemas/guestbook.schema';
 
 export const GET: APIRoute = async () => {
   console.log("API Route: GET /api/guestbook invoked.");
   try {
     const entries = await getAllGuestbookEntries();
+    // Validate response data (optional but recommended)
+    const parseResult = GuestbookEntrySchema.array().safeParse(entries);
+    if (!parseResult.success) {
+      console.error('Guestbook GET response validation failed:', parseResult.error.flatten());
+      // Optionally still return the data, or return an error if strict
+      // return jsonErrorResponse(500, 'Internal server error: Invalid response data.');
+    }
     return jsonResponse(200, entries);
   } catch (error: any) {
     console.error("API Error (GET /api/guestbook):", error.message);
@@ -26,23 +34,21 @@ export const POST: APIRoute = async ({ request, locals }) => {
   console.log(`API Route: User authenticated. User ID: ${userId}. Ready to create guestbook entry.`);
 
   try {
-    let name: string;
-    let message: string;
+    let validated;
     try {
-        const body: Partial<GuestbookEntry> = await request.json();
-        name = body.name?.toString().trim() ?? '';
-        message = body.message?.toString().trim() ?? '';
-
-        if (!name || !message) {
-            console.log("API Error: Missing or empty name or message in request body.");
-            return jsonErrorResponse(400, "Bad Request: Name and message are required and cannot be empty.");
-        }
+      const body = await request.json();
+      // Validate input using Zod
+      const result = GuestbookEntrySchema.pick({ name: true, message: true }).safeParse(body);
+      if (!result.success) {
+        return jsonErrorResponse(400, result.error.flatten());
+      }
+      validated = result.data;
     } catch (e) {
-        console.log("API Error: Invalid JSON body received.");
-        return jsonErrorResponse(400, "Bad Request: Invalid JSON body.");
+      console.log("API Error: Invalid JSON body received.");
+      return jsonErrorResponse(400, "Bad Request: Invalid JSON body.");
     }
 
-    const newEntry = await createGuestbookEntry(name, message);
+    const newEntry = await createGuestbookEntry(validated);
 
     console.log("API Route: Guestbook entry created successfully.");
     return jsonResponse(201, newEntry);

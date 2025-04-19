@@ -1,44 +1,15 @@
 import { supabase } from '../lib/supabase';
-import type { Order } from '../types/types'; 
+import { OrderSchema, type Order } from '../schemas/order.schema';
 import { handleSupabaseError } from '../utils/supabaseUtils';
 
 export async function createOrder(
-    userId: string,
-    ordererName: string,
-    phone: string | undefined,
-    packageTier: string | undefined,
-    isDisadvantaged: boolean,
-    isSchool: boolean,
-    uploadedFileUrls: string[] | undefined,
-    certificateUrl: string | undefined,
-
-    pageCount: number | undefined,
-    totalPrice: number | undefined
+    input: Omit<Order, 'id' | 'created_at' | 'status'>
 ): Promise<Order> {
-
-    if (!userId || !ordererName || ordererName.trim().length === 0) {
-        throw new Error("Validation Error: User ID and a non-empty Orderer Name are required to create an order.");
-    }
-
-    const trimmedOrdererName = ordererName.trim();
-    const trimmedPhone = phone?.trim() || undefined;
+    // Input is already validated by Zod in API layer
     const operationContext = "create order";
-
-    console.log(`Service: Creating order for user '${userId}' with name '${trimmedOrdererName}', package '${packageTier || 'N/A'}', phone '${trimmedPhone || 'N/A'}'. Disadvantaged: ${isDisadvantaged}, School: ${isSchool}`);
-
     const insertData: Partial<Order> & { user_id: string; orderer_name: string; status: Order['status']; is_disadvantaged: boolean; is_school: boolean; } = {
-      user_id: userId,
-      orderer_name: trimmedOrdererName,
-      status: "pending", 
-      is_disadvantaged: isDisadvantaged,
-      is_school: isSchool,
-
-      ...(trimmedPhone && { phone: trimmedPhone }),
-      ...(packageTier && { package_tier: packageTier }),
-      ...(uploadedFileUrls && { uploaded_file_urls: uploadedFileUrls }),
-      ...(certificateUrl && { certificate_url: certificateUrl }),
-      ...(pageCount !== undefined && pageCount !== null && { page_count: pageCount }),
-      ...(totalPrice !== undefined && totalPrice !== null && { total_price: totalPrice }),
+      ...input,
+      status: "pending",
     };
 
     console.log("Service: Inserting data:", insertData); 
@@ -51,11 +22,17 @@ export async function createOrder(
 
     handleSupabaseError(error, operationContext);
 
-     if (!data) {
-
+    if (!data) {
       throw new Error(`Database Error: Failed to ${operationContext}: No data returned after insert.`);
-     }
+    }
 
-    console.log("Service: Created order successfully with ID:", data.id);
-    return data as Order;
+    // Validate with Zod before returning
+    const result = OrderSchema.safeParse(data);
+    if (!result.success) {
+      console.error('Service: Order response validation failed:', result.error.flatten());
+      throw new Error('Database Error: Invalid order returned.');
+    }
+
+    console.log("Service: Created order successfully with ID:", result.data.id);
+    return result.data;
 }

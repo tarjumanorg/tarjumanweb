@@ -3,7 +3,7 @@
 import Layout from "../layout/Layout.astro";
 import { getAllGuestbookEntries } from "../services/guestbook.service";
 import Reviews from "../components/Reviews.astro";
-import type { GuestbookEntry } from "../types/types";
+import type { GuestbookEntry } from "../schemas/guestbook.schema";
 
 const { userId } = Astro.locals as { userId: string };
 

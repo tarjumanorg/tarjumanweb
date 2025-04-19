@@ -34,6 +34,23 @@ declare namespace App {
 ```
 ---
 
+`src/env.schema.ts`:
+```
+import { z } from "zod";
+
+export const EnvSchema = z.object({
+  PUBLIC_SUPABASE_URL: z.string().url(),
+  PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
+  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
+  TURNSTILE_SECRET_KEY: z.string().min(1),
+  PUBLIC_TURNSTILE_SITE_KEY: z.string().min(1),
+});
+
+export type EnvVars = z.infer<typeof EnvSchema>;
+
+```
+---
+
 `src/components/Reviews.astro`:
 ```
 ---
@@ -275,9 +292,14 @@ const siteTitle = "Tarjuman Admin";
 ```
 // src/lib/supabase.ts
 import { createClient } from "@supabase/supabase-js";
+import { EnvSchema } from '../env.schema';
 
-const supabaseUrl = import.meta.env.PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.PUBLIC_SUPABASE_ANON_KEY;
+const envParseResult = EnvSchema.safeParse(import.meta.env);
+if (!envParseResult.success) {
+  throw new Error('Environment variable validation failed: ' + JSON.stringify(envParseResult.error.flatten()));
+}
+const supabaseUrl = envParseResult.data.PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = envParseResult.data.PUBLIC_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error("Supabase URL or Anon Key is missing.");
@@ -302,9 +324,15 @@ export const supabase = createClient(
 ```
 // src/lib/supabaseAdmin.ts
 import { createClient } from "@supabase/supabase-js";
+import { EnvSchema } from '../env.schema';
 
-const supabaseUrl = import.meta.env.PUBLIC_SUPABASE_URL;
-const supabaseServiceRoleKey = import.meta.env.SUPABASE_SERVICE_ROLE_KEY;
+const envParseResult = EnvSchema.safeParse(import.meta.env);
+if (!envParseResult.success) {
+  throw new Error('Environment variable validation failed: ' + JSON.stringify(envParseResult.error.flatten()));
+}
+
+const supabaseUrl = envParseResult.data.PUBLIC_SUPABASE_URL;
+const supabaseServiceRoleKey = envParseResult.data.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!supabaseUrl || !supabaseServiceRoleKey) {
   if (!import.meta.env.PROD) {
@@ -687,7 +715,6 @@ const title = "Sign In";
 ```
 ---
 // src/pages/admin/index.astro
-// Redirects to the main admin orders page
 return Astro.redirect('/admin/orders');
 ---
 ```
@@ -698,7 +725,7 @@ return Astro.redirect('/admin/orders');
 ---
 import AdminLayout from "../../../layouts/AdminLayout.astro";
 import type { Order } from "../../../types/types";
-import { formatDate } from "../../../utils/dateUtils"; // Import formatDate utility
+import { formatDate } from "../../../utils/dateUtils"; 
 
 let orders: Order[] = [];
 let errorMessage: string | null = null;
@@ -718,13 +745,11 @@ try {
 
 } catch (e: any) {
    console.error("Error fetching admin orders:", e);
-   // Provide a more user-friendly error message on the page
+
    errorMessage = "Could not load orders. Please check server logs or try again later.";
-   // Optionally keep the technical message for logs:
-   // errorMessage = e.message || "An unexpected error occurred.";
+
 }
 
-// No longer need local formatDate definition
 ---
 
 <AdminLayout title="Manage Orders">
@@ -749,7 +774,7 @@ try {
         {orders.map((order) => (
           <tr>
             <td>{order.id}</td>
-            <td>{formatDate(order.created_at)}</td> {/* Use imported function */}
+            <td>{formatDate(order.created_at)}</td> {}
             <td>{order.orderer_name}</td>
             <td>{order.status || 'N/A'}</td>
             <td>{order.package_tier || 'N/A'}</td>
@@ -1150,7 +1175,8 @@ import type { APIRoute } from "astro";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin"; 
 import { jsonResponse, jsonErrorResponse } from '../../../../utils/apiResponse';
 import { handleSupabaseError } from "../../../../utils/supabaseUtils"; 
-import type { Order } from "../../../../types/types";
+import type { Order } from '../../../../schemas/order.schema';
+import { OrderSchema } from '../../../../schemas/order.schema';
 
 export const GET: APIRoute = async ({ locals }) => {
     const adminUserId = locals.userId; 
@@ -1178,7 +1204,21 @@ export const GET: APIRoute = async ({ locals }) => {
 
         handleSupabaseError(error, "fetch all orders (admin service)");
 
-        console.log(`API Route: Fetched ${data?.length ?? 0} orders using admin service client.`);
+        // Validate response data with Zod
+        const ResponseOrderSchema = OrderSchema.pick({
+          id: true,
+          created_at: true,
+          orderer_name: true,
+          status: true,
+          package_tier: true,
+          user_id: true,
+        });
+        const parseResult = ResponseOrderSchema.array().safeParse(data);
+        if (!parseResult.success) {
+          console.error('Admin Orders GET response validation failed:', parseResult.error.flatten());
+          // Optionally still return the data, or return an error if strict
+          // return jsonErrorResponse(500, 'Internal server error: Invalid response data.');
+        }
         return jsonResponse(200, data as Order[] || []); 
 
     } catch (error: any) {
@@ -1196,12 +1236,10 @@ import type { APIRoute } from "astro";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { jsonResponse, jsonErrorResponse } from '../../../../utils/apiResponse';
 import { handleSupabaseError } from "../../../../utils/supabaseUtils";
-import type { Order } from "../../../../types/types";
-import { createSignedUrlForPath, enrichOrderWithSignedUrls, type ApiOrderResponse } from "../../../../utils/storageUtils"; // Import shared utils and types
-
-// Constants are now imported via storageUtils or constants.ts
-
-// No longer need local extractFilename or createSignedUrlForPath definitions
+import type { Order } from '../../../../schemas/order.schema';
+import { createSignedUrlForPath, enrichOrderWithSignedUrls, type ApiOrderResponse } from "../../../../utils/storageUtils";
+import { z } from "zod";
+import { AdminOrderDetailResponseSchema, UpdateOrderPayloadSchema } from '../../../../schemas/order.schema';
 
 export const GET: APIRoute = async ({ params, locals }) => {
     const adminUserId = locals.userId;
@@ -1213,39 +1251,45 @@ export const GET: APIRoute = async ({ params, locals }) => {
     }
     console.log(`API Route: GET /api/admin/orders/${orderId} invoked by verified admin user ${adminUserId}. Using service client.`);
 
-    if (!orderId || isNaN(Number(orderId))) {
+    const idNumResult = z.coerce.number().int().positive().safeParse(orderId);
+    if (!idNumResult.success) {
         return jsonErrorResponse(400, "Invalid Order ID.");
     }
-    const idNum = Number(orderId);
+    const idNum = idNumResult.data;
 
     try {
-        // Fetch raw order data
+
         const { data: orderData, error: fetchError } = await supabaseAdmin
             .from("orders")
-            .select(`*`) // Select all fields initially
+            .select(`*`) 
             .eq("id", idNum)
-            .single(); // Expect a single result
+            .single(); 
 
         handleSupabaseError(fetchError, `fetch order ${idNum} (admin service)`);
 
         if (!orderData) {
-            // handleSupabaseError would throw for actual DB errors,
-            // this catches the case where the query runs but finds nothing.
+
             return jsonErrorResponse(404, `Order with ID ${idNum} not found.`);
         }
 
         console.log(`API Route: Fetched order ${idNum}. Enriching with signed URLs...`);
 
-        // Use the utility function to get signed URLs and format the response
         const responseData: ApiOrderResponse = await enrichOrderWithSignedUrls(orderData as Order);
+
+        // Validate response
+        const parseResult = AdminOrderDetailResponseSchema.safeParse(responseData);
+        if (!parseResult.success) {
+            console.error('Admin Order Detail GET response validation failed:', parseResult.error.flatten());
+            // Optionally still return the data, or return an error if strict
+        }
 
         console.log(`API Route: Generated signed URLs for order ${idNum}. Returning enhanced data.`);
         return jsonResponse(200, responseData);
 
     } catch (error: any) {
         console.error(`API Error (GET /api/admin/orders/${orderId} with service client):`, error.message);
-         // Check for specific Supabase/PostgREST codes if needed, e.g., 'PGRST116' for not found during single()
-         if (error.code === 'PGRST116' || error.message.includes('fetch order')) { // PGRST116: "Searched row does not exist"
+
+         if (error.code === 'PGRST116' || error.message.includes('fetch order')) { 
              return jsonErrorResponse(404, `Order with ID ${idNum} not found.`);
          }
          if (error.message.startsWith("Permission Denied:")) {
@@ -1265,61 +1309,28 @@ export const PATCH: APIRoute = async ({ request, params, locals }) => {
      }
      console.log(`API Route: PATCH /api/admin/orders/${orderId} invoked by verified admin user ${adminUserId}. Using service client.`);
 
-    if (!orderId || isNaN(Number(orderId))) {
+    const idNumResult = z.coerce.number().int().positive().safeParse(orderId);
+    if (!idNumResult.success) {
         return jsonErrorResponse(400, "Invalid Order ID.");
     }
-    const idNum = Number(orderId);
+    const idNum = idNumResult.data;
 
-    let payload: Partial<Pick<Order, 'status' | 'page_count' | 'total_price'>>; // Exclude translated_file_url here, handled by upload route
+    let payload;
     try {
         payload = await request.json();
+        // Validate PATCH body
+        const result = UpdateOrderPayloadSchema.safeParse(payload);
+        if (!result.success) {
+            return jsonErrorResponse(400, result.error.flatten());
+        }
+        payload = result.data;
     } catch (e) {
         return jsonErrorResponse(400, "Invalid JSON body.");
     }
 
-    // Validate and build the update object
-    const updateData: Partial<Order> = {};
-    const allowedFields: (keyof typeof payload)[] = ['status', 'page_count', 'total_price'];
-    let hasValidUpdate = false;
-
-    for (const key of allowedFields) {
-        if (payload[key] !== undefined) { // Check if the key exists in the payload
-            if (key === 'status') {
-                // Validate status value
-                const validStatuses: Order['status'][] = ["pending", "processing", "completed", "cancelled"];
-                if (payload.status === null || (typeof payload.status === 'string' && validStatuses.includes(payload.status))) {
-                    updateData.status = payload.status;
-                    hasValidUpdate = true;
-                } else {
-                     return jsonErrorResponse(400, `Invalid status value: ${payload.status}. Must be one of ${validStatuses.join(', ')} or null.`);
-                }
-            } else if (key === 'page_count') {
-                if (payload.page_count === null) {
-                    updateData.page_count = null; hasValidUpdate = true;
-                } else {
-                    const count = Number(payload.page_count);
-                    if (!isNaN(count) && count >= 0 && Number.isInteger(count)) {
-                        updateData.page_count = count; hasValidUpdate = true;
-                    } else {
-                        return jsonErrorResponse(400, "Invalid page_count: Must be a non-negative integer or null.");
-                    }
-                }
-            } else if (key === 'total_price') {
-                 if (payload.total_price === null) {
-                    updateData.total_price = null; hasValidUpdate = true;
-                 } else {
-                    const price = Number(payload.total_price);
-                     // Allow non-integer price if needed, otherwise add Number.isInteger(price)
-                    if (!isNaN(price) && price >= 0) {
-                        updateData.total_price = price; hasValidUpdate = true;
-                    } else {
-                        return jsonErrorResponse(400, "Invalid total_price: Must be a non-negative number or null.");
-                    }
-                 }
-            }
-            // Note: translated_file_url is intentionally not handled here. Use the separate upload endpoint.
-        }
-    }
+    // Fix: allow status to be null for DB update
+    const updateData = { ...payload } as any;
+    const hasValidUpdate = Object.keys(updateData).length > 0;
 
     if (!hasValidUpdate) {
         return jsonErrorResponse(400, "No valid fields provided for update.");
@@ -1328,34 +1339,38 @@ export const PATCH: APIRoute = async ({ request, params, locals }) => {
     console.log(`API Route: Updating order ${idNum} using admin service client with data:`, updateData);
 
     try {
-        // Update the order
+
         const { data: updatedOrderData, error: updateError } = await supabaseAdmin
             .from("orders")
             .update(updateData)
             .eq("id", idNum)
-            .select() // Select all fields of the updated row
-            .single(); // Expect a single result
+            .select() 
+            .single(); 
 
         handleSupabaseError(updateError, `update order ${idNum} (admin service)`);
 
         if (!updatedOrderData) {
-             // This case might occur if the update condition (eq("id", idNum)) doesn't match any row
-             // or if RLS prevents the update/select. handleSupabaseError might catch RLS issues.
+
              console.error(`API Logic Error: Order ${idNum} not found after PATCH attempt or update failed silently.`);
              return jsonErrorResponse(404, `Order with ID ${idNum} could not be found or updated.`);
         }
 
         console.log(`API Route: Updated order ${idNum}. Enriching response with signed URLs...`);
 
-        // Enrich the updated order data with fresh signed URLs
         const responseData: ApiOrderResponse = await enrichOrderWithSignedUrls(updatedOrderData as Order);
+
+        // Validate response
+        const parseResult = AdminOrderDetailResponseSchema.safeParse(responseData);
+        if (!parseResult.success) {
+            console.error('Admin Order Detail PATCH response validation failed:', parseResult.error.flatten());
+        }
 
         console.log(`API Route: Updated order ${idNum} successfully. Returning enhanced data.`);
         return jsonResponse(200, responseData);
 
     } catch (error: any) {
         console.error(`API Error (PATCH /api/admin/orders/${orderId} with service client):`, error.message);
-        if (error.code === 'PGRST116' || error.message.includes('update order')) { // PGRST116: row not found
+        if (error.code === 'PGRST116' || error.message.includes('update order')) { 
              return jsonErrorResponse(404, `Order with ID ${idNum} not found when attempting update.`);
         }
          if (error.message.startsWith("Permission Denied:")) {
@@ -1373,12 +1388,12 @@ import type { APIRoute } from "astro";
 import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
 import { jsonResponse, jsonErrorResponse } from '../../../../../utils/apiResponse';
 import { handleSupabaseError } from "../../../../../utils/supabaseUtils";
-import { sanitizeFilename, extractFilename } from "../../../../../utils/filenameUtils"; // Import relevant utils
-import { generateStoragePath, createSignedUrlForPath, enrichOrderWithSignedUrls, type ApiOrderResponse } from "../../../../../utils/storageUtils"; // Import storage utils
-import { STORAGE_BUCKET } from "../../../../../utils/constants"; // Import constants
-import type { Order } from "../../../../../types/types";
-
-// No longer need local definitions for constants, suffix generation, or filename extraction
+import { sanitizeFilename, extractFilename } from "../../../../../utils/filenameUtils"; 
+import { generateStoragePath, createSignedUrlForPath, enrichOrderWithSignedUrls, type ApiOrderResponse } from "../../../../../utils/storageUtils"; 
+import { STORAGE_BUCKET } from "../../../../../utils/constants"; 
+import type { Order } from '../../../../../schemas/order.schema';
+import { z } from "zod";
+import { AdminOrderDetailResponseSchema } from '../../../../../schemas/order.schema';
 
 export const POST: APIRoute = async ({ request, params, locals }) => {
     const adminUserId = locals.userId;
@@ -1390,25 +1405,25 @@ export const POST: APIRoute = async ({ request, params, locals }) => {
     }
     console.log(`API Route: POST /api/admin/orders/${orderId}/upload invoked by verified admin user ${adminUserId}. Using service client.`);
 
-    if (!orderId || isNaN(Number(orderId))) {
+    const idNumResult = z.coerce.number().int().positive().safeParse(orderId);
+    if (!idNumResult.success) {
         return jsonErrorResponse(400, "Invalid Order ID.");
     }
-    const idNum = Number(orderId);
+    const idNum = idNumResult.data;
 
-    // 1. Fetch original user ID (needed for storage path)
     let originalUserId: string;
     try {
         console.log(`API Route: Fetching original user ID for order ${idNum} using service client...`);
         const { data: orderData, error: fetchError } = await supabaseAdmin
             .from("orders")
-            .select("user_id") // Select only the user_id
+            .select("user_id") 
             .eq("id", idNum)
-            .maybeSingle(); // Use maybeSingle to handle not found gracefully
+            .maybeSingle(); 
 
         handleSupabaseError(fetchError, `fetch user_id for order ${idNum} (admin service upload)`);
 
         if (!orderData?.user_id) {
-            // No error from Supabase, but order or user_id not found
+
             return jsonErrorResponse(404, `Order with ID ${idNum} not found or has no associated user.`);
         }
         originalUserId = orderData.user_id;
@@ -1416,7 +1431,7 @@ export const POST: APIRoute = async ({ request, params, locals }) => {
 
     } catch (error: any) {
          console.error(`API Error (fetching user_id for order ${idNum} with service client):`, error.message);
-         if (error.code === 'PGRST116') { // Check specific codes if maybeSingle() was used
+         if (error.code === 'PGRST116') { 
              return jsonErrorResponse(404, `Order with ID ${idNum} not found.`);
          }
           if (error.message.startsWith("Permission Denied:")) {
@@ -1425,12 +1440,11 @@ export const POST: APIRoute = async ({ request, params, locals }) => {
          return jsonErrorResponse(500, `Failed to retrieve order details: ${error.message}`);
     }
 
-    // 2. Process FormData for the file
     let file: File | null = null;
     let originalFilename = 'untitled_translation';
     try {
         const formData = await request.formData();
-        const fileEntry = formData.get("translated_file"); // Match the input name attribute
+        const fileEntry = formData.get("translated_file"); 
 
         if (!fileEntry || typeof fileEntry === 'string' || !(fileEntry instanceof File) || fileEntry.size === 0) {
              return jsonErrorResponse(400, "Missing or invalid 'translated_file' in form data. Ensure the file input name matches and a file is selected.");
@@ -1443,52 +1457,48 @@ export const POST: APIRoute = async ({ request, params, locals }) => {
          return jsonErrorResponse(400, "Bad Request: Invalid form data.");
     }
 
-    // 3. Generate Storage Path using utility
     const filePath = generateStoragePath({
-        userId: originalUserId, // Use the fetched original user ID
+        userId: originalUserId, 
         filename: originalFilename,
         type: 'translation',
-        orderId: idNum // Pass orderId for translation type
+        orderId: idNum 
     });
 
-    // 4. Upload file to Storage using Admin client
     console.log(`API Route: Uploading translated file via service client to bucket '${STORAGE_BUCKET}' at path: ${filePath}`);
     try {
          const { error: uploadError } = await supabaseAdmin.storage
             .from(STORAGE_BUCKET)
-            .upload(filePath, file!); // Use the generated path
+            .upload(filePath, file!); 
 
-        // Let handleSupabaseError catch specific storage errors if needed, or check here
         if (uploadError) {
              console.error(`API Storage Error: Failed to upload ${originalFilename} via service client. Code: ${uploadError.name}, Message: ${uploadError.message}`);
-             // Rethrow a more specific error or handle common cases (e.g., file exists)
+
              throw new Error(`Server Error: Failed to upload file '${originalFilename}'. ${uploadError.message}`);
         }
         console.log(`API Route: Successfully uploaded ${originalFilename} via service client to ${filePath}`);
 
     } catch (error: any) {
-         // Catch errors from the upload itself or rethrown errors
+
          console.error(`API Error (uploading file ${filePath} via service client):`, error.message);
          return jsonErrorResponse(500, `Failed to upload file: ${error.message || 'An unexpected storage error occurred.'}`);
     }
 
-    // 5. Update the order record with the new file path using Admin client
     console.log(`API Route: Updating order ${idNum} via service client with translated_file_url: ${filePath}`);
     let updatedOrderData: Order | null = null;
     try {
         const { data, error: updateError } = await supabaseAdmin
             .from("orders")
-            .update({ translated_file_url: filePath }) // Update only the URL field
+            .update({ translated_file_url: filePath }) 
             .eq("id", idNum)
-            .select() // Select the full updated order
-            .single(); // Expect the updated order back
+            .select() 
+            .single(); 
 
         handleSupabaseError(updateError, `update order ${idNum} with translated file URL (admin service)`);
 
         if (!data) {
-             // Should ideally be caught by handleSupabaseError or .single() error handling
+
              console.error(`API Logic Error: Order ${idNum} not found via service client after successful update attempt.`);
-             // Clean up uploaded file? (More complex logic)
+
              return jsonErrorResponse(500, `Order with ID ${idNum} could not be retrieved after update.`);
         }
         updatedOrderData = data;
@@ -1496,17 +1506,21 @@ export const POST: APIRoute = async ({ request, params, locals }) => {
 
     } catch (error: any) {
          console.error(`API Error (updating order ${idNum} with URL via service client):`, error.message);
-         // Log the orphaned file path for potential manual cleanup
+
          console.warn(`Potentially orphaned file uploaded to ${filePath} due to database update failure.`);
          let statusCode = 500;
-         if (error.code === 'PGRST116') statusCode = 404; // Order not found during update
+         if (error.code === 'PGRST116') statusCode = 404; 
          if (error.message.startsWith("Permission Denied:")) statusCode = 403;
          return jsonErrorResponse(statusCode, `Failed to update order with file URL: ${error.message}`);
     }
 
-    // 6. Enrich the response with signed URLs
     console.log(`API Route: Enriching final response for order ${idNum} with signed URLs...`);
     const responseData: ApiOrderResponse = await enrichOrderWithSignedUrls(updatedOrderData as Order);
+
+    const parseResult = AdminOrderDetailResponseSchema.safeParse(responseData);
+    if (!parseResult.success) {
+        console.error('Admin Order Upload POST response validation failed:', parseResult.error.flatten());
+    }
 
     return jsonResponse(200, responseData);
 };
@@ -1648,13 +1662,21 @@ export const GET: APIRoute = async ({ cookies, redirect }) => {
 // src/pages/api/guestbook/index.ts
 import type { APIRoute } from "astro";
 import { getAllGuestbookEntries, createGuestbookEntry } from "../../../services/guestbook.service";
-import type { GuestbookEntry } from "../../../types/types";
+import type { GuestbookEntry } from '../../../schemas/guestbook.schema';
 import { jsonResponse, jsonErrorResponse } from '../../../utils/apiResponse';
+import { GuestbookEntrySchema } from '../../../schemas/guestbook.schema';
 
 export const GET: APIRoute = async () => {
   console.log("API Route: GET /api/guestbook invoked.");
   try {
     const entries = await getAllGuestbookEntries();
+    // Validate response data (optional but recommended)
+    const parseResult = GuestbookEntrySchema.array().safeParse(entries);
+    if (!parseResult.success) {
+      console.error('Guestbook GET response validation failed:', parseResult.error.flatten());
+      // Optionally still return the data, or return an error if strict
+      // return jsonErrorResponse(500, 'Internal server error: Invalid response data.');
+    }
     return jsonResponse(200, entries);
   } catch (error: any) {
     console.error("API Error (GET /api/guestbook):", error.message);
@@ -1673,23 +1695,21 @@ export const POST: APIRoute = async ({ request, locals }) => {
   console.log(`API Route: User authenticated. User ID: ${userId}. Ready to create guestbook entry.`);
 
   try {
-    let name: string;
-    let message: string;
+    let validated;
     try {
-        const body: Partial<GuestbookEntry> = await request.json();
-        name = body.name?.toString().trim() ?? '';
-        message = body.message?.toString().trim() ?? '';
-
-        if (!name || !message) {
-            console.log("API Error: Missing or empty name or message in request body.");
-            return jsonErrorResponse(400, "Bad Request: Name and message are required and cannot be empty.");
-        }
+      const body = await request.json();
+      // Validate input using Zod
+      const result = GuestbookEntrySchema.pick({ name: true, message: true }).safeParse(body);
+      if (!result.success) {
+        return jsonErrorResponse(400, result.error.flatten());
+      }
+      validated = result.data;
     } catch (e) {
-        console.log("API Error: Invalid JSON body received.");
-        return jsonErrorResponse(400, "Bad Request: Invalid JSON body.");
+      console.log("API Error: Invalid JSON body received.");
+      return jsonErrorResponse(400, "Bad Request: Invalid JSON body.");
     }
 
-    const newEntry = await createGuestbookEntry(name, message);
+    const newEntry = await createGuestbookEntry(validated);
 
     console.log("API Route: Guestbook entry created successfully.");
     return jsonResponse(201, newEntry);
@@ -1715,21 +1735,18 @@ export const POST: APIRoute = async ({ request, locals }) => {
 `src/pages/api/orders/create.ts`:
 ```
 import type { APIRoute, APIContext } from "astro";
-import { supabase } from "../../../lib/supabase"; // Use non-admin client for user uploads
+import { supabase } from "../../../lib/supabase"; 
 import { createOrder } from "../../../services/order.service";
 import { verifyTurnstileToken } from '../../../utils/turnstile';
 import { jsonResponse, jsonErrorResponse } from '../../../utils/apiResponse';
-import { sanitizeFilename } from "../../../utils/filenameUtils"; // Only need sanitize
-import { generateStoragePath } from "../../../utils/storageUtils"; // Import path generator
-import { PACKAGE_MAP, STORAGE_BUCKET } from "../../../utils/constants"; // Import constants
+import { sanitizeFilename } from "../../../utils/filenameUtils"; 
+import { generateStoragePath } from "../../../utils/storageUtils"; 
+import { PACKAGE_MAP, STORAGE_BUCKET } from "../../../utils/constants"; 
 
-// No longer need local generateRandomSuffix or packageTiers
-
-// Interface for validated data remains the same
 interface ValidatedFormData {
     ordererName: string;
     phone?: string;
-    packageSliderValue: string; // Keep the raw slider value
+    packageSliderValue: string; 
     isDisadvantaged: boolean;
     isSchool: boolean;
     turnstileToken: string;
@@ -1737,41 +1754,48 @@ interface ValidatedFormData {
     certificateFile: File | null;
 }
 
-// Validation function updated to use PACKAGE_MAP
 async function _parseAndValidateFormData(formData: FormData): Promise<ValidatedFormData | Response> {
     try {
-        const ordererName = formData.get("orderer_name")?.toString().trim();
+        const orderer_name = formData.get("orderer_name")?.toString().trim() ?? '';
         const phone = formData.get("phone")?.toString().trim() || undefined;
-        const packageSliderValue = formData.get("package_tier_value")?.toString(); // Get slider value '1', '2', '3'
-        const isDisadvantaged = formData.get("is_disadvantaged") === "on";
-        const isSchool = formData.get("is_school") === "on";
-        const turnstileToken = formData.get("cf-turnstile-response")?.toString();
+        const package_tier_value = formData.get("package_tier_value")?.toString() ?? '';
+        const is_disadvantaged = formData.get("is_disadvantaged") === "on";
+        const is_school = formData.get("is_school") === "on";
+        const turnstile_token = formData.get("cf-turnstile-response")?.toString() ?? '';
         const orderFiles = formData.getAll("order_files") as File[];
         const certificateFile = formData.get("certificate_file") as File | null;
 
-        // Basic presence checks
-        if (!ordererName) return jsonErrorResponse(400, "Bad Request: Orderer name is required.");
-        // Use PACKAGE_MAP from constants to validate slider value
-        if (!packageSliderValue || !PACKAGE_MAP[packageSliderValue]) return jsonErrorResponse(400, "Bad Request: Invalid or missing package selection.");
-        if (!turnstileToken) return jsonErrorResponse(400, "Bad Request: CAPTCHA token is missing.");
+        // Validate fields (excluding files) with Zod
+        const { CreateOrderInputSchema } = await import("../../../schemas/order.schema");
+        const result = CreateOrderInputSchema.safeParse({
+            orderer_name,
+            phone,
+            package_tier_value,
+            is_disadvantaged,
+            is_school,
+            turnstile_token,
+        });
+        if (!result.success) {
+            return jsonErrorResponse(400, result.error.flatten());
+        }
 
-        // File checks
+        // File checks (manual)
         const validOrderFiles = orderFiles.filter(f => f && f instanceof File && f.size > 0);
         if (validOrderFiles.length === 0) return jsonErrorResponse(400, "Bad Request: At least one main document file is required.");
 
         const validCertificateFile = (certificateFile && certificateFile instanceof File && certificateFile.size > 0) ? certificateFile : null;
-        if (isDisadvantaged && !validCertificateFile) return jsonErrorResponse(400, "Bad Request: Certificate of indigence is required when economic disadvantage is checked.");
-        if (!isDisadvantaged && validCertificateFile) console.warn("API Warning: Certificate file provided but disadvantage checkbox not checked. Ignoring certificate.");
+        if (is_disadvantaged && !validCertificateFile) return jsonErrorResponse(400, "Bad Request: Certificate of indigence is required when economic disadvantage is checked.");
+        if (!is_disadvantaged && validCertificateFile) console.warn("API Warning: Certificate file provided but disadvantage checkbox not checked. Ignoring certificate.");
 
         return {
-            ordererName,
+            ordererName: orderer_name,
             phone,
-            packageSliderValue, // Return the numeric value
-            isDisadvantaged,
-            isSchool,
-            turnstileToken,
+            packageSliderValue: package_tier_value,
+            isDisadvantaged: is_disadvantaged,
+            isSchool: is_school,
+            turnstileToken: turnstile_token,
             orderFiles: validOrderFiles,
-            certificateFile: isDisadvantaged ? validCertificateFile : null // Only include if disadvantaged
+            certificateFile: is_disadvantaged ? validCertificateFile : null
         };
     } catch (error: any) {
         console.error("API Error: Unexpected error during FormData parsing.", error);
@@ -1779,13 +1803,11 @@ async function _parseAndValidateFormData(formData: FormData): Promise<ValidatedF
     }
 }
 
-// Interface for upload result remains the same
 interface UploadResult {
     uploadedFilePaths: string[];
     certificatePath?: string;
 }
 
-// Upload function updated to use generateStoragePath utility
 async function _uploadFilesToStorage(
     userId: string,
     orderFiles: File[],
@@ -1793,12 +1815,11 @@ async function _uploadFilesToStorage(
 ): Promise<UploadResult> {
     const uploadedFilePaths: string[] = [];
     let certificatePath: string | undefined = undefined;
-    // STORAGE_BUCKET is imported from constants
 
     console.log(`API Route: Uploading ${orderFiles.length} main document(s) for user ${userId}...`);
     try {
         const uploadPromises = orderFiles.map(async (file) => {
-            // Use utility to generate path
+
             const filePath = generateStoragePath({
                 userId: userId,
                 filename: file.name,
@@ -1806,28 +1827,26 @@ async function _uploadFilesToStorage(
             });
 
             console.log(`API Route: Uploading ${file.name} to bucket '${STORAGE_BUCKET}' at path ${filePath}`);
-            // Use the standard supabase client (non-admin) for user uploads respecting RLS
+
             const { error: uploadError } = await supabase.storage
                 .from(STORAGE_BUCKET)
                 .upload(filePath, file);
 
             if (uploadError) {
                 console.error(`API Error: Failed to upload ${file.name}. Error:`, uploadError);
-                // Check for specific errors if needed (e.g., duplicate file path if policy allows update)
+
                 throw new Error(`Server Error: Failed to upload file '${file.name}'. ${uploadError.message}`);
             }
             console.log(`API Route: Successfully uploaded ${file.name} to ${filePath}`);
-            return filePath; // Return the path on success
+            return filePath; 
         });
 
-        // Execute all main file uploads in parallel
         const mainFilePaths = await Promise.all(uploadPromises);
         uploadedFilePaths.push(...mainFilePaths);
 
-        // Upload certificate if present
         if (certificateFile) {
             console.log("API Route: Uploading certificate file...");
-             // Use utility to generate path
+
             const certFilePath = generateStoragePath({
                 userId: userId,
                 filename: certificateFile.name,
@@ -1835,7 +1854,7 @@ async function _uploadFilesToStorage(
             });
 
             console.log(`API Route: Uploading ${certificateFile.name} to bucket '${STORAGE_BUCKET}' at path ${certFilePath}`);
-            // Use the standard supabase client
+
             const { error: certUploadError } = await supabase.storage
                 .from(STORAGE_BUCKET)
                 .upload(certFilePath, certificateFile);
@@ -1852,30 +1871,28 @@ async function _uploadFilesToStorage(
         return { uploadedFilePaths, certificatePath };
 
     } catch (error: any) {
-        // Catch errors from Promise.all or certificate upload
+
         console.error("API Error: Error during file upload process.", error);
-        // Rethrow specific error messages or a generic one
+
         if (error.message.startsWith("Server Error:")) {
-            throw error; // Propagate specific upload errors
+            throw error; 
         } else {
             throw new Error(`Server Error: An unexpected error occurred during file processing. ${error.message}`);
         }
     }
 }
 
-// Main POST handler
 export const POST: APIRoute = async ({ request, locals, clientAddress }: APIContext) => {
     console.log("API Route: POST /api/orders/create invoked.");
 
     const userId = locals.userId;
     if (!userId) {
-        // Middleware should handle this, but double-check
+
         console.warn("API Warning: User ID missing in locals for protected route /api/orders/create.");
         return jsonErrorResponse(401, "Unauthorized.");
     }
     console.log(`API Route: User authenticated via middleware. User ID: ${userId}`);
 
-    // 1. Parse FormData
     let formData: FormData;
     try {
         formData = await request.formData();
@@ -1884,10 +1901,9 @@ export const POST: APIRoute = async ({ request, locals, clientAddress }: APICont
         return jsonErrorResponse(400, "Bad Request: Invalid form data.");
     }
 
-    // 2. Validate FormData
     const validationResult = await _parseAndValidateFormData(formData);
     if (validationResult instanceof Response) {
-        return validationResult; // Return error response if validation failed
+        return validationResult; 
     }
 
     const {
@@ -1895,103 +1911,164 @@ export const POST: APIRoute = async ({ request, locals, clientAddress }: APICont
         turnstileToken, orderFiles, certificateFile
     } = validationResult;
 
-    // Get package name from the validated slider value using the constant map
     const packageTier = PACKAGE_MAP[packageSliderValue];
 
-    // 3. Verify Turnstile Token
     try {
         console.log("API Route: Verifying Turnstile token...");
-        // Get client IP (best effort)
-        const forwardedIp = request.headers.get('x-nf-client-connection-ip'); // Netlify specific
-        const cfConnectingIp = request.headers.get('cf-connecting-ip'); // Cloudflare specific
-        const remoteIp = forwardedIp || cfConnectingIp || clientAddress; // Fallback to Astro's clientAddress
+
+        const forwardedIp = request.headers.get('x-nf-client-connection-ip'); 
+        const cfConnectingIp = request.headers.get('cf-connecting-ip'); 
+        const remoteIp = forwardedIp || cfConnectingIp || clientAddress; 
         if (!remoteIp) console.warn("API Warning: Could not determine client IP for Turnstile verification.");
 
         await verifyTurnstileToken(turnstileToken, remoteIp);
         console.log("API Route: Turnstile verification successful.");
     } catch (error: any) {
         console.warn("API Route: Turnstile verification failed.", error.message);
-        // Distinguish configuration errors from user errors
+
         if (error.message.startsWith("Server configuration error")) {
-            return jsonErrorResponse(500, error.message); // Server issue
+            return jsonErrorResponse(500, error.message); 
         }
-        // User likely failed the challenge or token expired/invalid
+
         return jsonErrorResponse(403, `CAPTCHA verification failed: ${error.message}`);
     }
 
-    // 4. Upload Files to Storage
     let uploadResult: UploadResult;
     try {
-        // Pass validated files to the upload utility
+
         uploadResult = await _uploadFilesToStorage(userId, orderFiles, certificateFile);
     } catch (error: any) {
-        // _uploadFilesToStorage throws specific errors, pass them along
+
         return jsonErrorResponse(500, error.message);
     }
 
-    // 5. Create Order in Database via Service
     try {
         console.log(`API Route: Calling createOrder service for user ${userId}...`);
 
-        const newOrder = await createOrder(
-            userId,
-            ordererName,
+        // Build order object for createOrder
+        const orderInput = {
+            user_id: userId,
+            orderer_name: ordererName,
             phone,
-            packageTier, // Pass the mapped package name
-            isDisadvantaged,
-            isSchool,
-            uploadResult.uploadedFilePaths, // Pass the array of paths
-            uploadResult.certificatePath, // Pass the single optional path
-            undefined, // pageCount (not collected in this form)
-            undefined  // totalPrice (not collected in this form)
-        );
+            package_tier: packageTier,
+            is_disadvantaged: isDisadvantaged,
+            is_school: isSchool,
+            uploaded_file_urls: uploadResult.uploadedFilePaths,
+            certificate_url: uploadResult.certificatePath,
+            page_count: undefined,
+            total_price: undefined
+        };
+        const newOrder = await createOrder(orderInput);
 
         console.log("API Route: Order created successfully in database:", newOrder.id);
-        return jsonResponse(201, newOrder); // Return the created order data
+        return jsonResponse(201, newOrder); 
 
     } catch (error: any) {
-        // Handle errors from the createOrder service
+
         console.error("API Error (POST /api/orders/create - Service Call):", error.message);
 
-        // Check for specific error types thrown by the service
         if (error.message.startsWith("Validation Error:")) {
-            // This suggests an issue with data passed to the service, potentially a server-side logic error
+
             console.error("Service Validation Error:", error.message);
-            return jsonErrorResponse(400, `Bad Request: ${error.message}`); // Or 500 if it's unexpected server-side validation
+            return jsonErrorResponse(400, `Bad Request: ${error.message}`); 
         }
         if (error.message.startsWith("Database Error:") || error.message.startsWith("Permission Denied:")) {
-            // More critical error after uploads succeeded
+
             console.error("Database or Permission Error during order creation:", error.message);
-            // Consider cleanup of uploaded files if possible (complex)
+
              return jsonErrorResponse(500, `Failed to save order details after uploading files. Please contact support. ${error.message}`);
         }
-        // Generic fallback
+
         return jsonErrorResponse(500, `An unexpected server error occurred while saving the order: ${error.message}`);
     }
 };
 ```
 ---
 
+`src/schemas/guestbook.schema.ts`:
+```
+import { z } from "zod";
+
+export const GuestbookEntrySchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  message: z.string().min(1, "Message is required"),
+});
+
+export type GuestbookEntry = z.infer<typeof GuestbookEntrySchema>;
+
+```
+---
+
+`src/schemas/order.schema.ts`:
+```
+import { z } from "zod";
+
+export const OrderSchema = z.object({
+  id: z.number().int().positive(),
+  user_id: z.string(),
+  orderer_name: z.string().min(1, "Orderer name is required"),
+  status: z.enum(["pending", "processing", "completed", "cancelled"]),
+  created_at: z.string().datetime(),
+  phone: z.string().nullable().optional(),
+  package_tier: z.string().nullable().optional(),
+  page_count: z.number().int().nonnegative().nullable().optional(),
+  total_price: z.number().nonnegative().nullable().optional(),
+  uploaded_file_urls: z.array(z.string()).nullable().optional(),
+  is_disadvantaged: z.boolean(),
+  is_school: z.boolean(),
+  certificate_url: z.string().nullable().optional(),
+  translated_file_url: z.string().nullable().optional(),
+});
+
+export const CreateOrderInputSchema = z.object({
+  orderer_name: z.string().min(1, "Orderer name is required"),
+  phone: z.string().optional(),
+  package_tier_value: z.string().min(1, "Package tier is required"),
+  is_disadvantaged: z.boolean(),
+  is_school: z.boolean(),
+  turnstile_token: z.string().min(1, "CAPTCHA token is required"),
+});
+
+export const SignedFileInfoSchema = z.object({
+  path: z.string(),
+  filename: z.string().nullable(),
+  signedUrl: z.string().nullable(),
+});
+
+export const AdminOrderDetailResponseSchema = OrderSchema.partial().extend({
+  uploaded_files_info: z.array(SignedFileInfoSchema.nullable()).optional(),
+  certificate_info: SignedFileInfoSchema.nullable().optional(),
+  translated_file_info: SignedFileInfoSchema.nullable().optional(),
+});
+
+export const UpdateOrderPayloadSchema = z.object({
+  status: z.enum(["pending", "processing", "completed", "cancelled"]).nullable().optional(),
+  page_count: z.number().int().nonnegative().nullable().optional(),
+  total_price: z.number().nonnegative().nullable().optional(),
+}).partial();
+
+export type Order = z.infer<typeof OrderSchema>;
+export type CreateOrderInput = z.infer<typeof CreateOrderInputSchema>;
+export type SignedFileInfo = z.infer<typeof SignedFileInfoSchema>;
+export type AdminOrderDetailResponse = z.infer<typeof AdminOrderDetailResponseSchema>;
+export type UpdateOrderPayload = z.infer<typeof UpdateOrderPayloadSchema>;
+
+```
+---
+
 `src/scripts/adminOrderHandlers.ts`:
 ```
-import type { Order } from "../types/types";
+import type { Order } from '../schemas/order.schema';
 import type { SignedFileInfo, ApiOrderResponse as ClientApiOrderResponse } from "../utils/storageUtils";
 import { displayStatus } from "./uiUtils";
+import { UpdateOrderPayloadSchema } from '../schemas/order.schema';
 
-// Define the payload type used for updates
 type UpdatePayload = {
     status?: Order['status'] | null;
     page_count?: number | null;
     total_price?: number | null;
 };
 
-/**
- * Handles the submission of the order update form.
- * @param event The form submit event.
- * @param formElement The update form HTML element.
- * @param statusElement The HTML element for displaying status messages.
- * @param updateTranslatedFileDisplay Function to update the translated file link display.
- */
 export async function handleOrderUpdateSubmit(
     event: SubmitEvent,
     formElement: HTMLFormElement,
@@ -2011,12 +2088,10 @@ export async function handleOrderUpdateSubmit(
     const formData = new FormData(formElement);
     const payload: UpdatePayload = {};
 
-    // Extract and validate form data
     const status = formData.get('status');
     const pageCountRaw = formData.get('page_count');
     const totalPriceRaw = formData.get('total_price');
 
-    // Status validation
     if (status !== null && status !== undefined) {
         if (status === "") {
             payload.status = null;
@@ -2028,7 +2103,6 @@ export async function handleOrderUpdateSubmit(
         }
     }
 
-    // Page Count validation
     if (pageCountRaw !== null && pageCountRaw !== '') {
         const pageCountNum = parseInt(pageCountRaw as string, 10);
         if (!isNaN(pageCountNum) && pageCountNum >= 0) payload.page_count = pageCountNum;
@@ -2037,24 +2111,30 @@ export async function handleOrderUpdateSubmit(
             return;
         }
     } else if (pageCountRaw === '') {
-        payload.page_count = null; // Allow clearing
+        payload.page_count = null; 
     }
 
-    // Total Price validation
     if (totalPriceRaw !== null && totalPriceRaw !== '') {
-        const totalPriceNum = parseInt(totalPriceRaw as string, 10); // Use parseInt for whole units
+        const totalPriceNum = parseInt(totalPriceRaw as string, 10); 
         if (!isNaN(totalPriceNum) && totalPriceNum >= 0) payload.total_price = totalPriceNum;
         else {
             displayStatus(statusElement, 'Invalid total price (must be a non-negative number).', 'error');
             return;
         }
     } else if (totalPriceRaw === '') {
-        payload.total_price = null; // Allow clearing
+        payload.total_price = null; 
     }
 
-    // Check if anything changed
     if (Object.keys(payload).length === 0) {
         displayStatus(statusElement, 'No changes detected to update.', 'info');
+        return;
+    }
+
+    // Validate with Zod before sending
+    const zodResult = UpdateOrderPayloadSchema.safeParse(payload);
+    if (!zodResult.success) {
+        const errorMessages = Object.values(zodResult.error.flatten().fieldErrors).flat().join(' ');
+        displayStatus(statusElement, `Validation error: ${errorMessages}`, 'error');
         return;
     }
 
@@ -2071,12 +2151,10 @@ export async function handleOrderUpdateSubmit(
 
         displayStatus(statusElement, 'Order updated successfully!', 'success');
 
-        // Update form fields with returned data
         if (result.status !== undefined) (document.getElementById('status') as HTMLSelectElement).value = result.status ?? '';
         if (result.page_count !== undefined) (document.getElementById('page_count') as HTMLInputElement).value = result.page_count?.toString() ?? '';
         if (result.total_price !== undefined) (document.getElementById('total_price') as HTMLInputElement).value = result.total_price?.toString() ?? '';
 
-        // Update translated file display based on the response (important if PATCH returns full state)
         updateTranslatedFileDisplay(result.translated_file_info);
 
     } catch (error) {
@@ -2086,14 +2164,6 @@ export async function handleOrderUpdateSubmit(
     }
 }
 
-/**
- * Handles the submission of the translated file upload form.
- * @param event The form submit event.
- * @param formElement The upload form HTML element.
- * @param statusElement The HTML element for displaying status messages.
- * @param fileInputElement The file input HTML element.
- * @param updateTranslatedFileDisplay Function to update the translated file link display.
- */
 export async function handleTranslationUploadSubmit(
     event: SubmitEvent,
     formElement: HTMLFormElement,
@@ -2115,12 +2185,12 @@ export async function handleTranslationUploadSubmit(
          return;
     }
 
-    const formData = new FormData(formElement); // FormData automatically includes the file
+    const formData = new FormData(formElement); 
 
     try {
         const response = await fetch(`/api/admin/orders/${orderId}/upload`, {
             method: 'POST',
-            body: formData, // Send FormData directly
+            body: formData, 
         });
 
         const result: ClientApiOrderResponse = await response.json();
@@ -2128,10 +2198,9 @@ export async function handleTranslationUploadSubmit(
 
         displayStatus(statusElement, 'File uploaded and order updated!', 'success');
 
-        // Update the display for the translated file link
         updateTranslatedFileDisplay(result.translated_file_info);
 
-        formElement.reset(); // Reset the upload form
+        formElement.reset(); 
 
     } catch (error) {
         console.error('Upload Error:', error);
@@ -2411,11 +2480,9 @@ export async function submitOrderForm(options: OrderFormSubmitOptions): Promise<
 
 `src/scripts/orderFormClient.ts`:
 ```
-// src/scripts/orderFormClient.ts
-import { submitOrderForm } from "./formHandler"; // Adjust path if needed
-import type { OrderFormSubmitOptions } from "./formHandler"; // Adjust path if needed
+import { submitOrderForm } from "./formHandler"; 
+import type { OrderFormSubmitOptions } from "./formHandler"; 
 
-// Get form elements
 const form = document.getElementById("order-form") as HTMLFormElement | null;
 const orderFilesInput = document.getElementById("order-files") as HTMLInputElement | null;
 const nameInput = document.getElementById("orderer-name") as HTMLInputElement | null;
@@ -2429,22 +2496,19 @@ const schoolCheckbox = document.getElementById("is-school") as HTMLInputElement 
 const submitButton = document.getElementById("submit-order-button") as HTMLButtonElement | null;
 const statusDiv = document.getElementById("order-status") as HTMLElement | null;
 
-// --- Retrieve and Parse Package Map ---
-let packageMap: { [key: string]: string } = { "1": "Basic", "2": "Standard", "3": "Premium" }; // Provide a fallback default
+let packageMap: { [key: string]: string } = { "1": "Basic", "2": "Standard", "3": "Premium" }; 
 if (form?.dataset.packageMap) {
     try {
         packageMap = JSON.parse(form.dataset.packageMap);
     } catch (e) {
         console.error("Failed to parse package map data from form attribute:", e);
-        // Using fallback map defined above
+
     }
 } else {
     console.warn("Package map data attribute not found on form. Using default map.");
-    // Using fallback map defined above
-}
-// ------------------------------------
 
-// Check if all essential elements are found
+}
+
 if (
     form &&
     orderFilesInput &&
@@ -2459,38 +2523,32 @@ if (
     submitButton &&
     statusDiv
 ) {
-    // --- Event Listeners ---
 
-    // Update package display when slider changes
     packageSlider.addEventListener("input", () => {
         const selectedValue = packageSlider.value;
         packageDisplay.textContent = packageMap[selectedValue] || "Unknown";
     });
-    // Initialize display based on default value
+
     packageDisplay.textContent = packageMap[packageSlider.value] || "Unknown";
 
-    // Show/hide certificate upload and set required attribute
     disadvantageCheckbox.addEventListener("change", () => {
         if (disadvantageCheckbox.checked) {
             certificateContainer.classList.remove("hidden");
-            certificateInput.required = true; // Make required only when checked
+            certificateInput.required = true; 
         } else {
             certificateContainer.classList.add("hidden");
-            certificateInput.required = false; // Remove required
-            certificateInput.value = ""; // Clear the file input if unchecked
+            certificateInput.required = false; 
+            certificateInput.value = ""; 
         }
     });
 
-    // --- Form Submission Logic ---
     form.addEventListener("submit", async (event) => {
-        event.preventDefault(); // Prevent default form submission
+        event.preventDefault(); 
 
-        // Basic client-side validation (complementary to server-side)
-        statusDiv.textContent = ''; // Clear previous status
+        statusDiv.textContent = ''; 
         statusDiv.style.color = 'inherit';
         statusDiv.style.removeProperty('background-color');
         statusDiv.style.removeProperty('border');
-
 
         if (!orderFilesInput.files || orderFilesInput.files.length === 0 || Array.from(orderFilesInput.files).every(f => f.size === 0)) {
             statusDiv.textContent = "Please select at least one document file.";
@@ -2511,106 +2569,96 @@ if (
             return;
         }
         if (!phoneInput.value.trim()) {
-            // Basic check, server validates format
+
             statusDiv.textContent = "Please enter your phone number.";
             statusDiv.style.color = "red";
             phoneInput.focus();
             return;
         }
-        // Add more client-side checks if needed (e.g., file types, sizes)
 
-        // --- Call the Form Handler ---
-
-        // Success callback
         const onSuccessHandler = (data: any, formElement: HTMLFormElement) => {
             if (statusDiv) {
-                // Display success message from server or a generic one
+
                 statusDiv.textContent = `Order submitted successfully! Order ID: ${data?.id || "[Unknown ID]"}`;
                 statusDiv.style.color = "green";
-                // Apply success styles if needed (using the style block ones)
+
                 statusDiv.style.backgroundColor = "#d4edda";
                 statusDiv.style.borderColor = "#c3e6cb";
             }
-            formElement.reset(); // Reset the form fields
+            formElement.reset(); 
 
-            // Reset UI elements to default state after successful submission
             if (packageSlider && packageDisplay) {
-                packageSlider.value = "1"; // Reset slider to default
-                packageDisplay.textContent = packageMap[packageSlider.value] || "Unknown"; // Reset display
+                packageSlider.value = "1"; 
+                packageDisplay.textContent = packageMap[packageSlider.value] || "Unknown"; 
             }
             if (certificateContainer && certificateInput) {
-                certificateContainer.classList.add("hidden"); // Hide certificate section
-                certificateInput.required = false; // Ensure not required
+                certificateContainer.classList.add("hidden"); 
+                certificateInput.required = false; 
             }
-            // Optionally clear status after a delay
+
             setTimeout(() => {
                 if (statusDiv) {
                     statusDiv.textContent = "";
-                    statusDiv.style.color = 'inherit'; // Reset color
+                    statusDiv.style.color = 'inherit'; 
                     statusDiv.style.removeProperty('background-color');
                     statusDiv.style.removeProperty('border');
                 }
-            }, 8000); // 8 seconds
+            }, 8000); 
         };
 
-        // Error callback
         const onErrorHandler = (error: Error, statusElement: HTMLElement | null) => {
             if (statusElement) {
                 let displayMessage = "An unexpected error occurred during submission.";
-                // Try to get a more specific message
+
                 if (error.message) {
-                    // Basic filtering for common user-facing errors
+
                     if (error.message.includes("CAPTCHA verification failed")) {
                         displayMessage = "CAPTCHA verification failed. Please try again.";
                     } else if (error.message.includes("Bad Request:")) {
-                        displayMessage = error.message.replace("Bad Request: ", ""); // Show validation message
+                        displayMessage = error.message.replace("Bad Request: ", ""); 
                     } else if (error.message.includes("Failed to upload file")) {
                         displayMessage = "Error uploading file. Please ensure files are valid and try again.";
                     } else {
-                        // Generic for other errors (e.g., 500)
+
                         displayMessage = "Order submission failed. Please try again later or contact support.";
                     }
                 }
 
                 statusElement.textContent = `Error: ${displayMessage}`;
                 statusElement.style.color = "red";
-                // Apply error styles if needed (using the style block ones)
+
                 statusElement.style.backgroundColor = "#f8d7da";
                 statusElement.style.borderColor = "#f5c6cb";
             }
         };
 
-        // Options for the form submission helper
         const options: OrderFormSubmitOptions = {
             formElement: form,
             statusElement: statusDiv,
             submitButton: submitButton,
             onSuccess: onSuccessHandler,
             onError: onErrorHandler,
-            // Optional: Customize texts if needed
-            // initializingText: 'Preparing...',
-            // submittingText: 'Sending Order...',
+
         };
 
-        // Call the helper function from formHandler.ts
         await submitOrderForm(options);
     });
 
 } else {
-    // Log detailed error if elements are missing
+
     console.error("Could not find all required elements for the order form script. Check element IDs and ensure they exist in the HTML.", {
         form: !!form, orderFilesInput: !!orderFilesInput, nameInput: !!nameInput, phoneInput: !!phoneInput,
         packageSlider: !!packageSlider, packageDisplay: !!packageDisplay, disadvantageCheckbox: !!disadvantageCheckbox,
         certificateContainer: !!certificateContainer, certificateInput: !!certificateInput, schoolCheckbox: !!schoolCheckbox,
         submitButton: !!submitButton, statusDiv: !!statusDiv
     });
-    // Display error to user if possible
-    const errorDisplay = statusDiv || document.getElementById("order-status"); // Try again just in case
+
+    const errorDisplay = statusDiv || document.getElementById("order-status"); 
     if (errorDisplay) {
         errorDisplay.textContent = "Error initializing the order form. Please refresh the page or contact support.";
         errorDisplay.style.color = "red";
-         errorDisplay.style.backgroundColor = "#f8d7da"; // Error background
-         errorDisplay.style.borderColor = "#f5c6cb"; // Error border
+         errorDisplay.style.backgroundColor = "#f8d7da"; 
+         errorDisplay.style.borderColor = "#f5c6cb"; 
     }
 }
 ```
@@ -2618,14 +2666,6 @@ if (
 
 `src/scripts/uiUtils.ts`:
 ```
-// src/scripts/uiUtils.ts
-
-/**
- * Displays a status message in a designated HTML element with appropriate styling.
- * @param element The HTML element to display the message in.
- * @param message The message text. Pass null or empty string to clear.
- * @param type The type of message ('success', 'error', 'info', or 'clear' to reset).
- */
 export function displayStatus(
     element: HTMLElement | null,
     message: string | null,
@@ -2635,24 +2675,23 @@ export function displayStatus(
 
     if (!message || type === 'clear') {
         element.textContent = '';
-        element.className = 'status-message'; // Reset class
+        element.className = 'status-message'; 
         element.style.display = 'none';
         return;
     }
 
     element.textContent = message;
-    // Ensure base class is present, then add specific type class
-    element.className = 'status-message'; // Start fresh
+
+    element.className = 'status-message'; 
     if (type === 'success') {
         element.classList.add('status-success');
     } else if (type === 'error') {
         element.classList.add('status-error');
     } else {
-        // Default to info styling if needed, or just use base .status-message styles
-        // element.classList.add('status-info'); // If you have an info style
+
     }
 
-    element.style.display = 'block'; // Make sure it's visible
+    element.style.display = 'block'; 
 }
 ```
 ---
@@ -2660,7 +2699,7 @@ export function displayStatus(
 `src/services/guestbook.service.ts`:
 ```
 import { supabase } from '../lib/supabase'; 
-import type { GuestbookEntry } from '../types/types'; 
+import { GuestbookEntrySchema, type GuestbookEntry } from '../schemas/guestbook.schema';
 import { handleSupabaseError } from '../utils/supabaseUtils'; 
 
 export async function getAllGuestbookEntries(): Promise<GuestbookEntry[]> {
@@ -2674,18 +2713,20 @@ export async function getAllGuestbookEntries(): Promise<GuestbookEntry[]> {
 
   handleSupabaseError(error, operationContext); 
 
-  console.log("Service: Fetched entries successfully.");
-  return data as GuestbookEntry[];
-}
-
-export async function createGuestbookEntry(name: string, message: string): Promise<GuestbookEntry> {
-
-  if (!name || !message || name.trim().length === 0 || message.trim().length === 0) {
-      throw new Error("Validation Error: Name and message cannot be empty.");
+  // Validate with Zod before returning
+  const result = GuestbookEntrySchema.array().safeParse(data);
+  if (!result.success) {
+    console.error('Service: Guestbook entries response validation failed:', result.error.flatten());
+    return [];
   }
 
-  const trimmedName = name.trim();
-  const trimmedMessage = message.trim();
+  console.log("Service: Fetched entries successfully.");
+  return result.data;
+}
+
+export async function createGuestbookEntry(entry: Pick<GuestbookEntry, 'name' | 'message'>): Promise<GuestbookEntry> {
+  const trimmedName = entry.name.trim();
+  const trimmedMessage = entry.message.trim();
   const operationContext = "create guestbook entry";
 
   console.log(`Service: Creating guestbook entry for '${trimmedName}'...`);
@@ -2698,12 +2739,18 @@ export async function createGuestbookEntry(name: string, message: string): Promi
   handleSupabaseError(error, operationContext); 
 
   if (!data) {
+    throw new Error(`Database Error: Failed to ${operationContext}: No data returned after insert.`);
+  }
 
-      throw new Error(`Database Error: Failed to ${operationContext}: No data returned after insert.`);
+  // Validate with Zod before returning
+  const result = GuestbookEntrySchema.safeParse(data);
+  if (!result.success) {
+    console.error('Service: Guestbook entry response validation failed:', result.error.flatten());
+    throw new Error('Database Error: Invalid guestbook entry returned.');
   }
 
   console.log("Service: Created entry successfully.");
-  return data as GuestbookEntry; 
+  return result.data;
 }
 ```
 ---
@@ -2711,46 +2758,17 @@ export async function createGuestbookEntry(name: string, message: string): Promi
 `src/services/order.service.ts`:
 ```
 import { supabase } from '../lib/supabase';
-import type { Order } from '../types/types'; 
+import { OrderSchema, type Order } from '../schemas/order.schema';
 import { handleSupabaseError } from '../utils/supabaseUtils';
 
 export async function createOrder(
-    userId: string,
-    ordererName: string,
-    phone: string | undefined,
-    packageTier: string | undefined,
-    isDisadvantaged: boolean,
-    isSchool: boolean,
-    uploadedFileUrls: string[] | undefined,
-    certificateUrl: string | undefined,
-
-    pageCount: number | undefined,
-    totalPrice: number | undefined
+    input: Omit<Order, 'id' | 'created_at' | 'status'>
 ): Promise<Order> {
-
-    if (!userId || !ordererName || ordererName.trim().length === 0) {
-        throw new Error("Validation Error: User ID and a non-empty Orderer Name are required to create an order.");
-    }
-
-    const trimmedOrdererName = ordererName.trim();
-    const trimmedPhone = phone?.trim() || undefined;
+    // Input is already validated by Zod in API layer
     const operationContext = "create order";
-
-    console.log(`Service: Creating order for user '${userId}' with name '${trimmedOrdererName}', package '${packageTier || 'N/A'}', phone '${trimmedPhone || 'N/A'}'. Disadvantaged: ${isDisadvantaged}, School: ${isSchool}`);
-
     const insertData: Partial<Order> & { user_id: string; orderer_name: string; status: Order['status']; is_disadvantaged: boolean; is_school: boolean; } = {
-      user_id: userId,
-      orderer_name: trimmedOrdererName,
-      status: "pending", 
-      is_disadvantaged: isDisadvantaged,
-      is_school: isSchool,
-
-      ...(trimmedPhone && { phone: trimmedPhone }),
-      ...(packageTier && { package_tier: packageTier }),
-      ...(uploadedFileUrls && { uploaded_file_urls: uploadedFileUrls }),
-      ...(certificateUrl && { certificate_url: certificateUrl }),
-      ...(pageCount !== undefined && pageCount !== null && { page_count: pageCount }),
-      ...(totalPrice !== undefined && totalPrice !== null && { total_price: totalPrice }),
+      ...input,
+      status: "pending",
     };
 
     console.log("Service: Inserting data:", insertData); 
@@ -2763,43 +2781,25 @@ export async function createOrder(
 
     handleSupabaseError(error, operationContext);
 
-     if (!data) {
-
+    if (!data) {
       throw new Error(`Database Error: Failed to ${operationContext}: No data returned after insert.`);
-     }
+    }
 
-    console.log("Service: Created order successfully with ID:", data.id);
-    return data as Order;
+    // Validate with Zod before returning
+    const result = OrderSchema.safeParse(data);
+    if (!result.success) {
+      console.error('Service: Order response validation failed:', result.error.flatten());
+      throw new Error('Database Error: Invalid order returned.');
+    }
+
+    console.log("Service: Created order successfully with ID:", result.data.id);
+    return result.data;
 }
 ```
 ---
 
 `src/types/types.ts`:
 ```
-export interface GuestbookEntry {
-  name: string;
-  message: string;
-
-}
-
-export interface Order {
-  id: number; 
-  user_id: string; 
-  orderer_name: string;
-  status: "pending" | "processing" | "completed" | "cancelled"; 
-  created_at: string; 
-  phone?: string | null;
-  package_tier?: string | null; 
-  page_count?: number | null; 
-  total_price?: number | null; 
-  uploaded_file_urls?: string[] | null; 
-  is_disadvantaged: boolean;
-  is_school: boolean;
-  certificate_url?: string | null;
-  translated_file_url?: string | null; 
-
-}
-
 export interface FormSubmitOptions {
   formElement: HTMLFormElement;
   statusElement: HTMLElement | null;
@@ -2822,6 +2822,7 @@ export interface FormSubmitOptions {
 `src/utils/apiResponse.ts`:
 ```
 import type { APIContext } from 'astro';
+import type { typeToFlattenedError } from 'zod';
 
 const commonHeaders = {
     'Content-Type': 'application/json',
@@ -2834,8 +2835,14 @@ export function jsonResponse(status: number, data: any): Response {
     });
 }
 
-export function jsonErrorResponse(status: number, message: string): Response {
-    return new Response(JSON.stringify({ error: message }), {
+export function jsonErrorResponse(status: number, messageOrZodError: string | typeToFlattenedError<any, string>): Response {
+    let errorObj: any;
+    if (typeof messageOrZodError === 'string') {
+        errorObj = { error: messageOrZodError };
+    } else {
+        errorObj = { error: 'Validation error', details: messageOrZodError };
+    }
+    return new Response(JSON.stringify(errorObj), {
         status: status,
         headers: commonHeaders,
     });
@@ -2898,20 +2905,16 @@ export function deleteAuthCookies(cookies: AstroCookies): void {
 
 `src/utils/constants.ts`:
 ```
-// src/utils/constants.ts
 export const ACCESS_TOKEN = "sb-access-token";
 export const REFRESH_TOKEN = "sb-refresh-token";
 
 export const CALLBACK_PATH = "/api/auth/callback";
 
-// Turnstile
 export const TURNSTILE_VERIFY = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
 
-// Supabase Storage
-export const STORAGE_BUCKET = 'documents'; // Define your bucket name
-export const SIGNED_URL_EXPIRES_IN = 3600; // 1 hour in seconds
+export const STORAGE_BUCKET = 'documents'; 
+export const SIGNED_URL_EXPIRES_IN = 3600; 
 
-// Order Packages
 export const PACKAGE_MAP: { [key: string]: string } = {
     "1": "Basic",
     "2": "Standard",
@@ -2923,16 +2926,11 @@ export const PACKAGE_MAP: { [key: string]: string } = {
 `src/utils/dateUtils.ts`:
 ```
 // src/utils/dateUtils.ts
-/**
- * Formats a date string into a human-readable format (medium date, short time).
- * Returns 'N/A' if the input is null, undefined, or invalid.
- */
 export const formatDate = (dateString: string | null | undefined): string => {
     if (!dateString) return 'N/A';
     try {
         return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(dateString));
     } catch {
-        // Handle cases where dateString might be invalid after all
         return dateString;
     }
 }
@@ -2941,64 +2939,47 @@ export const formatDate = (dateString: string | null | undefined): string => {
 
 `src/utils/filenameUtils.ts`:
 ```
-// src/utils/filenameUtils.ts
-
-/**
- * Sanitizes a filename by replacing potentially problematic characters with underscores,
- * trimming leading/trailing underscores/dots, and enforcing a max length.
- */
 export function sanitizeFilename(filename: string): string {
-  // Replace whitespace and unsafe characters with underscores
+
   let sanitized = filename.replace(/[\s<>:"/\\|?*]+/g, '_');
 
-  // Remove leading/trailing underscores or dots
   sanitized = sanitized.replace(/^[_.]+|[_.]+$/g, '');
 
-  // Enforce a maximum length, preserving extension if possible
   const maxLength = 100;
   if (sanitized.length > maxLength) {
     const extDotIndex = sanitized.lastIndexOf('.');
-    if (extDotIndex > 0 && extDotIndex > sanitized.length - 10) { // Check if dot is likely an extension
+    if (extDotIndex > 0 && extDotIndex > sanitized.length - 10) { 
       const name = sanitized.substring(0, extDotIndex);
       const ext = sanitized.substring(extDotIndex);
-      // Ensure name part doesn't become empty
+
       const maxNameLength = Math.max(0, maxLength - ext.length);
       sanitized = name.substring(0, maxNameLength) + ext;
     } else {
-      // No extension or extension is too long / dot too early, just truncate
+
       sanitized = sanitized.substring(0, maxLength);
     }
   }
 
-  // Handle cases where sanitization results in an empty string
   if (!sanitized) {
     return 'untitled';
   }
   return sanitized;
 }
 
-/**
- * Extracts the filename part from a storage path (e.g., 'user/123/file.txt' -> 'file.txt').
- * Handles potential decoding issues. Returns null if path is empty.
- */
 export function extractFilename(path: string | null | undefined): string | null {
     if (!path) return null;
     try {
-        // Decode URI component first to handle encoded characters like %20
+
         const decodedPath = decodeURIComponent(path);
-        // Get the last part after the last slash
+
         return decodedPath.split('/').pop() || decodedPath;
     } catch (e) {
         console.warn(`Failed to decode or extract filename from path: ${path}`, e);
-        // Fallback: return the original path segment after the last slash if decoding fails
+
         return path.split('/').pop() || path;
     }
 }
 
-/**
- * Generates a short random alphanumeric string suffix.
- * @param length The desired length of the suffix (default: 6).
- */
 export const generateRandomSuffix = (length = 6): string => {
     const characters = 'abcdefghijklmnopqrstuvwxyz0123456789';
     let result = '';
@@ -3012,11 +2993,10 @@ export const generateRandomSuffix = (length = 6): string => {
 
 `src/utils/storageUtils.ts`:
 ```
-// src/utils/storageUtils.ts
 import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { SIGNED_URL_EXPIRES_IN, STORAGE_BUCKET } from "./constants";
 import { extractFilename, sanitizeFilename, generateRandomSuffix } from "./filenameUtils";
-import type { Order } from "../types/types"; // Assuming Order type might be useful
+import type { Order } from "../types/types"; 
 
 export interface SignedFileInfo {
     path: string;
@@ -3024,11 +3004,6 @@ export interface SignedFileInfo {
     signedUrl: string | null;
 }
 
-/**
- * Creates a signed URL for a given storage path.
- * Returns null if the path is empty.
- * Includes error handling for the signing process.
- */
 export async function createSignedUrlForPath(path: string | null | undefined): Promise<SignedFileInfo | null> {
     if (!path) return null;
 
@@ -3040,34 +3015,28 @@ export async function createSignedUrlForPath(path: string | null | undefined): P
 
         if (error) {
             console.error(`Storage Util Error: Failed to create signed URL for path "${path}":`, error.message);
-            // Return info even if signing fails, indicating the issue
+
             return { path, filename, signedUrl: null };
         }
-        // Ensure signedUrl is actually present in data
+
         return { path, filename, signedUrl: data?.signedUrl || null };
 
     } catch (e: any) {
         console.error(`Storage Util Exception: Unexpected error signing URL for path "${path}":`, e.message);
-        return { path, filename, signedUrl: null }; // Indicate error
+        return { path, filename, signedUrl: null }; 
     }
 }
 
-// Interface for the API response structure often used
-// Can be imported into API routes
 export type ApiOrderResponse = Partial<Order> & {
-    uploaded_files_info?: (SignedFileInfo | null)[]; // Allow null if signing fails for individual files
+    uploaded_files_info?: (SignedFileInfo | null)[]; 
     certificate_info?: SignedFileInfo | null;
     translated_file_info?: SignedFileInfo | null;
-    // Ensure original URL fields are excluded if needed, done in calling function
+
 };
 
-/**
- * Takes raw order data and enriches it with signed URLs for associated files.
- * Removes the original URL fields.
- */
 export async function enrichOrderWithSignedUrls(orderData: Order): Promise<ApiOrderResponse> {
      if (!orderData) {
-        // Should not happen if called correctly, but prevents runtime errors
+
         console.error("enrichOrderWithSignedUrls called with null/undefined orderData");
         return {};
      }
@@ -3085,19 +3054,17 @@ export async function enrichOrderWithSignedUrls(orderData: Order): Promise<ApiOr
         createSignedUrlForPath(orderData.translated_file_url),
     ]);
 
-    // Prepare the response, spreading orderData first
     const responseData: ApiOrderResponse = {
         ...orderData,
-        uploaded_files_info: uploadedFilesInfoResults, // Keep results as is (including potential nulls)
+        uploaded_files_info: uploadedFilesInfoResults, 
         certificate_info: certificateInfoResult,
         translated_file_info: translatedFileInfoResult,
-        // Explicitly remove the raw URL fields from the response
+
         uploaded_file_urls: undefined,
         certificate_url: undefined,
         translated_file_url: undefined,
     };
 
-    // Clean up undefined URL fields that were set to undefined
     delete responseData.uploaded_file_urls;
     delete responseData.certificate_url;
     delete responseData.translated_file_url;
@@ -3105,18 +3072,14 @@ export async function enrichOrderWithSignedUrls(orderData: Order): Promise<ApiOr
     return responseData;
 }
 
-
 interface GenerateStoragePathOptions {
     userId: string;
     filename: string;
     type: 'original' | 'certificate' | 'translation';
-    orderId?: number | string; // Optional, used for translations
-    timestamp?: number; // Optional, defaults to Date.now()
+    orderId?: number | string; 
+    timestamp?: number; 
 }
 
-/**
- * Generates a consistent storage path for uploaded files based on type and context.
- */
 export function generateStoragePath(options: GenerateStoragePathOptions): string {
     const { userId, filename, type, orderId, timestamp = Date.now() } = options;
 
@@ -3129,19 +3092,19 @@ export function generateStoragePath(options: GenerateStoragePathOptions): string
 
     switch (type) {
         case 'original':
-            // Example: user_id/originals/1678886400000-aBcDeF-document.pdf
+
             return `${userId}/originals/${timestamp}-${randomSuffix}-${sanitizedName}`;
         case 'certificate':
-             // Example: user_id/certificates/1678886400000-GhIjKl-certificate.pdf
+
             return `${userId}/certificates/${timestamp}-cert-${randomSuffix}-${sanitizedName}`;
         case 'translation':
             if (!orderId) {
                  throw new Error("generateStoragePath requires orderId for type 'translation'.");
             }
-            // Example: user_id/translations/order_123-1678886400000-MnOpQr-translated_doc.pdf
+
             return `${userId}/translations/order_${orderId}-${timestamp}-${randomSuffix}-${sanitizedName}`;
         default:
-            // Fallback or throw error for unknown type
+
              console.warn(`generateStoragePath called with unknown type: ${type}. Using generic path.`);
              return `${userId}/uploads/${timestamp}-${randomSuffix}-${sanitizedName}`;
     }

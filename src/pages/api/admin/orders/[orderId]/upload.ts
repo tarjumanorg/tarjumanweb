@@ -5,7 +5,9 @@ import { handleSupabaseError } from "../../../../../utils/supabaseUtils";
 import { sanitizeFilename, extractFilename } from "../../../../../utils/filenameUtils"; 
 import { generateStoragePath, createSignedUrlForPath, enrichOrderWithSignedUrls, type ApiOrderResponse } from "../../../../../utils/storageUtils"; 
 import { STORAGE_BUCKET } from "../../../../../utils/constants"; 
-import type { Order } from "../../../../../types/types";
+import type { Order } from '../../../../../schemas/order.schema';
+import { z } from "zod";
+import { AdminOrderDetailResponseSchema } from '../../../../../schemas/order.schema';
 
 export const POST: APIRoute = async ({ request, params, locals }) => {
     const adminUserId = locals.userId;
@@ -17,10 +19,11 @@ export const POST: APIRoute = async ({ request, params, locals }) => {
     }
     console.log(`API Route: POST /api/admin/orders/${orderId}/upload invoked by verified admin user ${adminUserId}. Using service client.`);
 
-    if (!orderId || isNaN(Number(orderId))) {
+    const idNumResult = z.coerce.number().int().positive().safeParse(orderId);
+    if (!idNumResult.success) {
         return jsonErrorResponse(400, "Invalid Order ID.");
     }
-    const idNum = Number(orderId);
+    const idNum = idNumResult.data;
 
     let originalUserId: string;
     try {
@@ -127,6 +130,11 @@ export const POST: APIRoute = async ({ request, params, locals }) => {
 
     console.log(`API Route: Enriching final response for order ${idNum} with signed URLs...`);
     const responseData: ApiOrderResponse = await enrichOrderWithSignedUrls(updatedOrderData as Order);
+
+    const parseResult = AdminOrderDetailResponseSchema.safeParse(responseData);
+    if (!parseResult.success) {
+        console.error('Admin Order Upload POST response validation failed:', parseResult.error.flatten());
+    }
 
     return jsonResponse(200, responseData);
 };

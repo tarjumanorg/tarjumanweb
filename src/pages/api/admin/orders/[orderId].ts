@@ -2,8 +2,10 @@ import type { APIRoute } from "astro";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { jsonResponse, jsonErrorResponse } from '../../../../utils/apiResponse';
 import { handleSupabaseError } from "../../../../utils/supabaseUtils";
-import type { Order } from "../../../../types/types";
-import { createSignedUrlForPath, enrichOrderWithSignedUrls, type ApiOrderResponse } from "../../../../utils/storageUtils"; 
+import type { Order } from '../../../../schemas/order.schema';
+import { createSignedUrlForPath, enrichOrderWithSignedUrls, type ApiOrderResponse } from "../../../../utils/storageUtils";
+import { z } from "zod";
+import { AdminOrderDetailResponseSchema, UpdateOrderPayloadSchema } from '../../../../schemas/order.schema';
 
 export const GET: APIRoute = async ({ params, locals }) => {
     const adminUserId = locals.userId;
@@ -15,10 +17,11 @@ export const GET: APIRoute = async ({ params, locals }) => {
     }
     console.log(`API Route: GET /api/admin/orders/${orderId} invoked by verified admin user ${adminUserId}. Using service client.`);
 
-    if (!orderId || isNaN(Number(orderId))) {
+    const idNumResult = z.coerce.number().int().positive().safeParse(orderId);
+    if (!idNumResult.success) {
         return jsonErrorResponse(400, "Invalid Order ID.");
     }
-    const idNum = Number(orderId);
+    const idNum = idNumResult.data;
 
     try {
 
@@ -38,6 +41,11 @@ export const GET: APIRoute = async ({ params, locals }) => {
         console.log(`API Route: Fetched order ${idNum}. Enriching with signed URLs...`);
 
         const responseData: ApiOrderResponse = await enrichOrderWithSignedUrls(orderData as Order);
+
+        const parseResult = AdminOrderDetailResponseSchema.safeParse(responseData);
+        if (!parseResult.success) {
+            console.error('Admin Order Detail GET response validation failed:', parseResult.error.flatten());
+       }
 
         console.log(`API Route: Generated signed URLs for order ${idNum}. Returning enhanced data.`);
         return jsonResponse(200, responseData);
@@ -65,60 +73,26 @@ export const PATCH: APIRoute = async ({ request, params, locals }) => {
      }
      console.log(`API Route: PATCH /api/admin/orders/${orderId} invoked by verified admin user ${adminUserId}. Using service client.`);
 
-    if (!orderId || isNaN(Number(orderId))) {
+    const idNumResult = z.coerce.number().int().positive().safeParse(orderId);
+    if (!idNumResult.success) {
         return jsonErrorResponse(400, "Invalid Order ID.");
     }
-    const idNum = Number(orderId);
+    const idNum = idNumResult.data;
 
-    let payload: Partial<Pick<Order, 'status' | 'page_count' | 'total_price'>>; 
+    let payload;
     try {
         payload = await request.json();
+        const result = UpdateOrderPayloadSchema.safeParse(payload);
+        if (!result.success) {
+            return jsonErrorResponse(400, result.error.flatten());
+        }
+        payload = result.data;
     } catch (e) {
         return jsonErrorResponse(400, "Invalid JSON body.");
     }
 
-    const updateData: Partial<Order> = {};
-    const allowedFields: (keyof typeof payload)[] = ['status', 'page_count', 'total_price'];
-    let hasValidUpdate = false;
-
-    for (const key of allowedFields) {
-        if (payload[key] !== undefined) { 
-            if (key === 'status') {
-
-                const validStatuses: Order['status'][] = ["pending", "processing", "completed", "cancelled"];
-                if (payload.status === null || (typeof payload.status === 'string' && validStatuses.includes(payload.status))) {
-                    updateData.status = payload.status;
-                    hasValidUpdate = true;
-                } else {
-                     return jsonErrorResponse(400, `Invalid status value: ${payload.status}. Must be one of ${validStatuses.join(', ')} or null.`);
-                }
-            } else if (key === 'page_count') {
-                if (payload.page_count === null) {
-                    updateData.page_count = null; hasValidUpdate = true;
-                } else {
-                    const count = Number(payload.page_count);
-                    if (!isNaN(count) && count >= 0 && Number.isInteger(count)) {
-                        updateData.page_count = count; hasValidUpdate = true;
-                    } else {
-                        return jsonErrorResponse(400, "Invalid page_count: Must be a non-negative integer or null.");
-                    }
-                }
-            } else if (key === 'total_price') {
-                 if (payload.total_price === null) {
-                    updateData.total_price = null; hasValidUpdate = true;
-                 } else {
-                    const price = Number(payload.total_price);
-
-                    if (!isNaN(price) && price >= 0) {
-                        updateData.total_price = price; hasValidUpdate = true;
-                    } else {
-                        return jsonErrorResponse(400, "Invalid total_price: Must be a non-negative number or null.");
-                    }
-                 }
-            }
-
-        }
-    }
+    const updateData: import('../../../../schemas/order.schema').UpdateOrderPayload = { ...payload };
+    const hasValidUpdate = Object.keys(updateData).length > 0;
 
     if (!hasValidUpdate) {
         return jsonErrorResponse(400, "No valid fields provided for update.");
@@ -146,6 +120,11 @@ export const PATCH: APIRoute = async ({ request, params, locals }) => {
         console.log(`API Route: Updated order ${idNum}. Enriching response with signed URLs...`);
 
         const responseData: ApiOrderResponse = await enrichOrderWithSignedUrls(updatedOrderData as Order);
+
+        const parseResult = AdminOrderDetailResponseSchema.safeParse(responseData);
+        if (!parseResult.success) {
+            console.error('Admin Order Detail PATCH response validation failed:', parseResult.error.flatten());
+        }
 
         console.log(`API Route: Updated order ${idNum} successfully. Returning enhanced data.`);
         return jsonResponse(200, responseData);
