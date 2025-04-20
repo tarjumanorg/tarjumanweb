@@ -50,7 +50,7 @@ try {
         {orders.map((order) => (
           <tr>
             <td>{order.id}</td>
-            <td>{formatDate(order.created_at)}</td> {}
+            <td>{formatDate(order.created_at)}</td>
             <td>{order.orderer_name}</td>
             <td>{order.status || 'N/A'}</td>
             <td>{order.package_tier || 'N/A'}</td>

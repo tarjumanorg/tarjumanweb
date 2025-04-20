@@ -10,7 +10,6 @@ const { reviews } = Astro.props;
 <div>
   <form id="guestbook-form" method="post" action="/api/guestbook">
     <h3>Leave a message</h3>
-    {}
     <div
       id="form-status"
       aria-live="polite"
@@ -53,7 +52,6 @@ const { reviews } = Astro.props;
               <p>
                 <strong>{review.name}</strong>
               </p>{" "}
-              {}
               <p>{review.message}</p>
             </li>
           ))}

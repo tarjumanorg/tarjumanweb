@@ -265,7 +265,7 @@ if (!orderId || isNaN(Number(orderId))) {
 <script>
     import type { SignedFileInfo } from "../../../schemas/order.schema";
     import {
-        handleOrderUpdateSubmit,
+        setupOrderUpdateForm,
         handleTranslationUploadSubmit,
     } from "../../../scripts/adminOrderHandlers";
 
@@ -292,6 +292,7 @@ if (!orderId || isNaN(Number(orderId))) {
     const updateStatusEl = document.querySelector(
         "[data-update-status]",
     ) as HTMLElement | null;
+    const updateSubmitButton = updateForm?.querySelector('button[type="submit"]') as HTMLButtonElement | null;
     const uploadForm = document.querySelector(
         "[data-upload-form]",
     ) as HTMLFormElement | null;
@@ -302,17 +303,15 @@ if (!orderId || isNaN(Number(orderId))) {
         "translated_file",
     ) as HTMLInputElement | null;
 
-    if (updateForm && updateStatusEl) {
-        updateForm.addEventListener("submit", (event) => {
-            handleOrderUpdateSubmit(
-                event,
-                updateForm,
-                updateStatusEl,
-                updateTranslatedFileDisplay,
-            );
-        });
+    if (updateForm && updateStatusEl && updateSubmitButton) {
+        setupOrderUpdateForm(
+            updateForm,
+            updateStatusEl,
+            updateSubmitButton,
+            updateTranslatedFileDisplay
+        );
     } else {
-        console.warn("Update form elements (form or status div) not found.");
+        console.warn("Update form elements (form, status div, or submit button) not found.");
     }
 
     if (uploadForm && uploadStatusEl && fileInput) {

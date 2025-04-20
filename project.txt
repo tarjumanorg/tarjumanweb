@@ -55,7 +55,7 @@ export type EnvVars = z.infer<typeof EnvSchema>;
 ```
 ---
 
-import type { GuestbookEntry } from "../types/types";
+import type { GuestbookEntry } from '../schemas/guestbook.schema';
 interface Props {
   reviews: GuestbookEntry[];
 }
@@ -496,7 +496,7 @@ export const onRequest = defineMiddleware(
 import Layout from "../layout/Layout.astro";
 import { getAllGuestbookEntries } from "../services/guestbook.service";
 import Reviews from "../components/Reviews.astro";
-import type { GuestbookEntry } from "../types/types";
+import type { GuestbookEntry } from "../schemas/guestbook.schema";
 
 const { userId } = Astro.locals as { userId: string };
 
@@ -724,7 +724,7 @@ return Astro.redirect('/admin/orders');
 ```
 ---
 import AdminLayout from "../../../layouts/AdminLayout.astro";
-import type { Order } from "../../../types/types";
+import type { Order } from "../../../schemas/order.schema";
 import { formatDate } from "../../../utils/dateUtils"; 
 
 let orders: Order[] = [];
@@ -798,8 +798,8 @@ import AdminLayout from "../../../layouts/AdminLayout.astro";
 import { formatDate } from "../../../utils/dateUtils";
 import type {
     ApiOrderResponse,
-    SignedFileInfo,
 } from "../../../utils/storageUtils";
+import type { SignedFileInfo } from '../../../schemas/order.schema';
 
 const { orderId } = Astro.params;
 let order: ApiOrderResponse | null = null;
@@ -1058,9 +1058,9 @@ if (!orderId || isNaN(Number(orderId))) {
 </AdminLayout>
 
 <script>
-    import type { SignedFileInfo } from "../../../utils/storageUtils";
+    import type { SignedFileInfo } from "../../../schemas/order.schema";
     import {
-        handleOrderUpdateSubmit,
+        setupOrderUpdateForm,
         handleTranslationUploadSubmit,
     } from "../../../scripts/adminOrderHandlers";
 
@@ -1087,6 +1087,7 @@ if (!orderId || isNaN(Number(orderId))) {
     const updateStatusEl = document.querySelector(
         "[data-update-status]",
     ) as HTMLElement | null;
+    const updateSubmitButton = updateForm?.querySelector('button[type="submit"]') as HTMLButtonElement | null;
     const uploadForm = document.querySelector(
         "[data-upload-form]",
     ) as HTMLFormElement | null;
@@ -1097,17 +1098,15 @@ if (!orderId || isNaN(Number(orderId))) {
         "translated_file",
     ) as HTMLInputElement | null;
 
-    if (updateForm && updateStatusEl) {
-        updateForm.addEventListener("submit", (event) => {
-            handleOrderUpdateSubmit(
-                event,
-                updateForm,
-                updateStatusEl,
-                updateTranslatedFileDisplay,
-            );
-        });
+    if (updateForm && updateStatusEl && updateSubmitButton) {
+        setupOrderUpdateForm(
+            updateForm,
+            updateStatusEl,
+            updateSubmitButton,
+            updateTranslatedFileDisplay
+        );
     } else {
-        console.warn("Update form elements (form or status div) not found.");
+        console.warn("Update form elements (form, status div, or submit button) not found.");
     }
 
     if (uploadForm && uploadStatusEl && fileInput) {
@@ -1204,7 +1203,6 @@ export const GET: APIRoute = async ({ locals }) => {
 
         handleSupabaseError(error, "fetch all orders (admin service)");
 
-        // Validate response data with Zod
         const ResponseOrderSchema = OrderSchema.pick({
           id: true,
           created_at: true,
@@ -1216,9 +1214,7 @@ export const GET: APIRoute = async ({ locals }) => {
         const parseResult = ResponseOrderSchema.array().safeParse(data);
         if (!parseResult.success) {
           console.error('Admin Orders GET response validation failed:', parseResult.error.flatten());
-          // Optionally still return the data, or return an error if strict
-          // return jsonErrorResponse(500, 'Internal server error: Invalid response data.');
-        }
+  }
         return jsonResponse(200, data as Order[] || []); 
 
     } catch (error: any) {
@@ -1276,12 +1272,10 @@ export const GET: APIRoute = async ({ params, locals }) => {
 
         const responseData: ApiOrderResponse = await enrichOrderWithSignedUrls(orderData as Order);
 
-        // Validate response
         const parseResult = AdminOrderDetailResponseSchema.safeParse(responseData);
         if (!parseResult.success) {
             console.error('Admin Order Detail GET response validation failed:', parseResult.error.flatten());
-            // Optionally still return the data, or return an error if strict
-        }
+       }
 
         console.log(`API Route: Generated signed URLs for order ${idNum}. Returning enhanced data.`);
         return jsonResponse(200, responseData);
@@ -1318,7 +1312,6 @@ export const PATCH: APIRoute = async ({ request, params, locals }) => {
     let payload;
     try {
         payload = await request.json();
-        // Validate PATCH body
         const result = UpdateOrderPayloadSchema.safeParse(payload);
         if (!result.success) {
             return jsonErrorResponse(400, result.error.flatten());
@@ -1328,8 +1321,7 @@ export const PATCH: APIRoute = async ({ request, params, locals }) => {
         return jsonErrorResponse(400, "Invalid JSON body.");
     }
 
-    // Fix: allow status to be null for DB update
-    const updateData = { ...payload } as any;
+    const updateData: import('../../../../schemas/order.schema').UpdateOrderPayload = { ...payload };
     const hasValidUpdate = Object.keys(updateData).length > 0;
 
     if (!hasValidUpdate) {
@@ -1359,7 +1351,6 @@ export const PATCH: APIRoute = async ({ request, params, locals }) => {
 
         const responseData: ApiOrderResponse = await enrichOrderWithSignedUrls(updatedOrderData as Order);
 
-        // Validate response
         const parseResult = AdminOrderDetailResponseSchema.safeParse(responseData);
         if (!parseResult.success) {
             console.error('Admin Order Detail PATCH response validation failed:', parseResult.error.flatten());
@@ -1765,7 +1756,6 @@ async function _parseAndValidateFormData(formData: FormData): Promise<ValidatedF
         const orderFiles = formData.getAll("order_files") as File[];
         const certificateFile = formData.get("certificate_file") as File | null;
 
-        // Validate fields (excluding files) with Zod
         const { CreateOrderInputSchema } = await import("../../../schemas/order.schema");
         const result = CreateOrderInputSchema.safeParse({
             orderer_name,
@@ -1779,7 +1769,6 @@ async function _parseAndValidateFormData(formData: FormData): Promise<ValidatedF
             return jsonErrorResponse(400, result.error.flatten());
         }
 
-        // File checks (manual)
         const validOrderFiles = orderFiles.filter(f => f && f instanceof File && f.size > 0);
         if (validOrderFiles.length === 0) return jsonErrorResponse(400, "Bad Request: At least one main document file is required.");
 
@@ -1945,7 +1934,6 @@ export const POST: APIRoute = async ({ request, locals, clientAddress }: APICont
     try {
         console.log(`API Route: Calling createOrder service for user ${userId}...`);
 
-        // Build order object for createOrder
         const orderInput = {
             user_id: userId,
             orderer_name: ordererName,
@@ -2008,7 +1996,7 @@ export const OrderSchema = z.object({
   user_id: z.string(),
   orderer_name: z.string().min(1, "Orderer name is required"),
   status: z.enum(["pending", "processing", "completed", "cancelled"]),
-  created_at: z.string().datetime(),
+  created_at: z.string(),
   phone: z.string().nullable().optional(),
   package_tier: z.string().nullable().optional(),
   page_count: z.number().int().nonnegative().nullable().optional(),
@@ -2059,110 +2047,18 @@ export type UpdateOrderPayload = z.infer<typeof UpdateOrderPayloadSchema>;
 `src/scripts/adminOrderHandlers.ts`:
 ```
 import type { Order } from '../schemas/order.schema';
-import type { SignedFileInfo, ApiOrderResponse as ClientApiOrderResponse } from "../utils/storageUtils";
+import type { SignedFileInfo } from '../schemas/order.schema';
+import type { ApiOrderResponse as ClientApiOrderResponse } from "../utils/storageUtils";
 import { displayStatus } from "./uiUtils";
 import { UpdateOrderPayloadSchema } from '../schemas/order.schema';
+import { setupFormSubmitListener } from './formHandler';
+import type { FormSubmitOptions } from '../types/types';
 
 type UpdatePayload = {
     status?: Order['status'] | null;
     page_count?: number | null;
     total_price?: number | null;
 };
-
-export async function handleOrderUpdateSubmit(
-    event: SubmitEvent,
-    formElement: HTMLFormElement,
-    statusElement: HTMLElement | null,
-    updateTranslatedFileDisplay: (fileInfo: SignedFileInfo | undefined | null) => void
-): Promise<void> {
-    event.preventDefault();
-    if (!statusElement) return;
-
-    displayStatus(statusElement, 'Updating...', 'info');
-    const orderId = formElement.dataset.orderId;
-    if (!orderId) {
-        displayStatus(statusElement, 'Error: Missing order ID.', 'error');
-        return;
-    }
-
-    const formData = new FormData(formElement);
-    const payload: UpdatePayload = {};
-
-    const status = formData.get('status');
-    const pageCountRaw = formData.get('page_count');
-    const totalPriceRaw = formData.get('total_price');
-
-    if (status !== null && status !== undefined) {
-        if (status === "") {
-            payload.status = null;
-        } else if (["pending", "processing", "completed", "cancelled"].includes(status as string)) {
-            payload.status = status as Order['status'];
-        } else {
-            displayStatus(statusElement, 'Invalid status value selected.', 'error');
-            return;
-        }
-    }
-
-    if (pageCountRaw !== null && pageCountRaw !== '') {
-        const pageCountNum = parseInt(pageCountRaw as string, 10);
-        if (!isNaN(pageCountNum) && pageCountNum >= 0) payload.page_count = pageCountNum;
-        else {
-            displayStatus(statusElement, 'Invalid page count (must be a non-negative number).', 'error');
-            return;
-        }
-    } else if (pageCountRaw === '') {
-        payload.page_count = null; 
-    }
-
-    if (totalPriceRaw !== null && totalPriceRaw !== '') {
-        const totalPriceNum = parseInt(totalPriceRaw as string, 10); 
-        if (!isNaN(totalPriceNum) && totalPriceNum >= 0) payload.total_price = totalPriceNum;
-        else {
-            displayStatus(statusElement, 'Invalid total price (must be a non-negative number).', 'error');
-            return;
-        }
-    } else if (totalPriceRaw === '') {
-        payload.total_price = null; 
-    }
-
-    if (Object.keys(payload).length === 0) {
-        displayStatus(statusElement, 'No changes detected to update.', 'info');
-        return;
-    }
-
-    // Validate with Zod before sending
-    const zodResult = UpdateOrderPayloadSchema.safeParse(payload);
-    if (!zodResult.success) {
-        const errorMessages = Object.values(zodResult.error.flatten().fieldErrors).flat().join(' ');
-        displayStatus(statusElement, `Validation error: ${errorMessages}`, 'error');
-        return;
-    }
-
-    console.log('Sending update payload:', payload);
-    try {
-        const response = await fetch(`/api/admin/orders/${orderId}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', },
-            body: JSON.stringify(payload),
-        });
-
-        const result: ClientApiOrderResponse = await response.json();
-        if (!response.ok) throw new Error((result as any).error || `HTTP error ${response.status}`);
-
-        displayStatus(statusElement, 'Order updated successfully!', 'success');
-
-        if (result.status !== undefined) (document.getElementById('status') as HTMLSelectElement).value = result.status ?? '';
-        if (result.page_count !== undefined) (document.getElementById('page_count') as HTMLInputElement).value = result.page_count?.toString() ?? '';
-        if (result.total_price !== undefined) (document.getElementById('total_price') as HTMLInputElement).value = result.total_price?.toString() ?? '';
-
-        updateTranslatedFileDisplay(result.translated_file_info);
-
-    } catch (error) {
-        console.error('Update Error:', error);
-        const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred during update.';
-        displayStatus(statusElement, `Update failed: ${errorMessage}`, 'error');
-    }
-}
 
 export async function handleTranslationUploadSubmit(
     event: SubmitEvent,
@@ -2185,12 +2081,12 @@ export async function handleTranslationUploadSubmit(
          return;
     }
 
-    const formData = new FormData(formElement); 
+    const formData = new FormData(formElement);
 
     try {
         const response = await fetch(`/api/admin/orders/${orderId}/upload`, {
             method: 'POST',
-            body: formData, 
+            body: formData,
         });
 
         const result: ClientApiOrderResponse = await response.json();
@@ -2200,13 +2096,115 @@ export async function handleTranslationUploadSubmit(
 
         updateTranslatedFileDisplay(result.translated_file_info);
 
-        formElement.reset(); 
+        formElement.reset();
 
     } catch (error) {
         console.error('Upload Error:', error);
         const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred during upload.';
         displayStatus(statusElement, `Upload failed: ${errorMessage}`, 'error');
     }
+}
+
+export function setupOrderUpdateForm(
+    formElement: HTMLFormElement,
+    statusElement: HTMLElement | null,
+    submitButton: HTMLButtonElement | null,
+    updateTranslatedFileDisplay: (fileInfo: SignedFileInfo | undefined | null) => void
+) {
+    const orderId = formElement.dataset.orderId;
+    if (!orderId) {
+        console.error("Cannot setup update form listener: Missing data-order-id attribute on the form.");
+        if (statusElement) {
+            displayStatus(statusElement, "Form setup error: Missing Order ID.", "error");
+        }
+        return;
+    }
+
+    function preparePayload(): UpdatePayload | null {
+        const formData = new FormData(formElement);
+        const payload: UpdatePayload = {};
+        const status = formData.get('status');
+        const pageCountRaw = formData.get('page_count');
+        const totalPriceRaw = formData.get('total_price');
+
+        if (status !== null && status !== undefined) {
+            if (status === "") {
+                payload.status = null;
+            } else if (["pending", "processing", "completed", "cancelled"].includes(status as string)) {
+                payload.status = status as Order['status'];
+            } else {
+                 if (statusElement) displayStatus(statusElement, 'Invalid status value selected.', 'error');
+                 return null;
+            }
+        }
+        if (pageCountRaw !== null && pageCountRaw !== '') {
+            const pageCountNum = parseInt(pageCountRaw as string, 10);
+            if (!isNaN(pageCountNum) && pageCountNum >= 0) payload.page_count = pageCountNum;
+            else {
+                if (statusElement) displayStatus(statusElement, 'Invalid page count (must be a non-negative number).', 'error');
+                return null;
+            }
+        } else if (pageCountRaw === '') {
+            payload.page_count = null;
+        }
+        if (totalPriceRaw !== null && totalPriceRaw !== '') {
+            const totalPriceNum = parseInt(totalPriceRaw as string, 10);
+            if (!isNaN(totalPriceNum) && totalPriceNum >= 0) payload.total_price = totalPriceNum;
+            else {
+                if (statusElement) displayStatus(statusElement, 'Invalid total price (must be a non-negative number).', 'error');
+                return null;
+            }
+        } else if (totalPriceRaw === '') {
+            payload.total_price = null;
+        }
+
+        if (Object.keys(payload).length === 0) {
+            if (statusElement) displayStatus(statusElement, 'No changes detected to update.', 'info');
+            return null;
+        }
+
+        const zodResult = UpdateOrderPayloadSchema.safeParse(payload);
+        if (!zodResult.success) {
+            const errorMessages = Object.values(zodResult.error.flatten().fieldErrors).flat().join(' ');
+            if (statusElement) displayStatus(statusElement, `Validation error: ${errorMessages}`, 'error');
+            return null;
+        }
+
+        console.log('Prepared update payload:', payload);
+        return payload;
+    }
+
+    function onSuccess(result: ClientApiOrderResponse, formElement: HTMLFormElement) {
+        if (statusElement) {
+             displayStatus(statusElement, 'Order updated successfully!', 'success');
+        }
+        if (result.status !== undefined) (document.getElementById('status') as HTMLSelectElement).value = result.status ?? '';
+        if (result.page_count !== undefined) (document.getElementById('page_count') as HTMLInputElement).value = result.page_count?.toString() ?? '';
+        if (result.total_price !== undefined) (document.getElementById('total_price') as HTMLInputElement).value = result.total_price?.toString() ?? '';
+        updateTranslatedFileDisplay(result.translated_file_info);
+    }
+
+    function onError(error: Error, statusElement: HTMLElement | null) {
+         console.error('Update Error (via generic handler):', error);
+         if (statusElement) {
+             const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred during update.';
+             displayStatus(statusElement, `Update failed: ${errorMessage}`, 'error');
+         }
+    }
+
+    const options: FormSubmitOptions = {
+        formElement,
+        statusElement,
+        submitButton,
+        preparePayload,
+        onSuccess,
+        onError,
+        endpoint: `/api/admin/orders/${orderId}`,
+        method: 'PATCH',
+        submittingText: 'Updating...'
+    };
+
+    setupFormSubmitListener(options);
 }
 ```
 ---
@@ -2996,13 +2994,7 @@ export const generateRandomSuffix = (length = 6): string => {
 import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { SIGNED_URL_EXPIRES_IN, STORAGE_BUCKET } from "./constants";
 import { extractFilename, sanitizeFilename, generateRandomSuffix } from "./filenameUtils";
-import type { Order } from "../types/types"; 
-
-export interface SignedFileInfo {
-    path: string;
-    filename: string | null;
-    signedUrl: string | null;
-}
+import type { SignedFileInfo, Order } from '../schemas/order.schema';
 
 export async function createSignedUrlForPath(path: string | null | undefined): Promise<SignedFileInfo | null> {
     if (!path) return null;
