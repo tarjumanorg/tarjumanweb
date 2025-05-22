@@ -65,7 +65,6 @@ const { reviews } = Astro.props;
 <div>
   <form id="guestbook-form" method="post" action="/api/guestbook">
     <h3>Leave a message</h3>
-    {}
     <div
       id="form-status"
       aria-live="polite"
@@ -108,7 +107,6 @@ const { reviews } = Astro.props;
               <p>
                 <strong>{review.name}</strong>
               </p>{" "}
-              {}
               <p>{review.message}</p>
             </li>
           ))}
@@ -774,7 +772,7 @@ try {
         {orders.map((order) => (
           <tr>
             <td>{order.id}</td>
-            <td>{formatDate(order.created_at)}</td> {}
+            <td>{formatDate(order.created_at)}</td>
             <td>{order.orderer_name}</td>
             <td>{order.status || 'N/A'}</td>
             <td>{order.package_tier || 'N/A'}</td>
@@ -2211,275 +2209,216 @@ export function setupOrderUpdateForm(
 
 `src/scripts/formHandler.ts`:
 ```
-import type { FormSubmitOptions as SimpleFormSubmitOptions } from '../types/types'; 
+import type { JsonFormSubmitOptions, FormDataSubmitOptions } from '../types/types';
 
-export async function submitFormData(options: SimpleFormSubmitOptions): Promise<void> {
-  const {
-    formElement, 
-    statusElement,
-    submitButton,
-    preparePayload,
-    onSuccess,
-    onError,
-    endpoint = formElement.action,
-    method = formElement.method || 'POST',
-    submittingText = 'Submitting...',
+export async function submitJsonData(options: JsonFormSubmitOptions): Promise<void> {
 
-  } = options;
+    const {
+        formElement,
+        statusElement,
+        submitButton,
+        preparePayload,
+        onSuccess,
+        onError,
+        endpoint = formElement.action,
+        method = formElement.method || 'POST',
+        submittingText = 'Submitting...',
+    } = options;
 
-  if (submitButton && !submitButton.dataset.originalText) {
-    submitButton.dataset.originalText = submitButton.textContent || 'Submit';
-  }
-
-  const originalButtonText = submitButton?.dataset.originalText || 'Submit';
-
-  if (statusElement) {
-    statusElement.textContent = '';
-    statusElement.style.color = 'inherit';
-  }
-
-  const payload = preparePayload();
-  if (payload === null) {
-
-    if (submitButton && submitButton.disabled) {
-      submitButton.disabled = false;
-      submitButton.textContent = originalButtonText;
+    if (submitButton && !submitButton.dataset.originalText) {
+        submitButton.dataset.originalText = submitButton.textContent || 'Submit';
     }
-    return; 
-  }
-
-  if (submitButton) {
-    submitButton.disabled = true;
-    submitButton.textContent = submittingText;
-  }
-
-  try {
-    const response = await fetch(endpoint, {
-      method: method.toUpperCase(),
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
-
-    let data: any;
-    try {
-
-      data = await response.json();
-    } catch (jsonError) {
-
-      if (!response.ok) {
-
-        throw new Error(`HTTP error! Status: ${response.status}, Response not JSON.`);
-      }
-
-      console.warn("Response was OK but not valid JSON.");
-      data = null; 
-    }
-
-    if (!response.ok) {
-
-      const errorMessage = data?.error || `HTTP error! Status: ${response.status}`;
-      throw new Error(errorMessage);
-    }
-
-    onSuccess(data, formElement);
-
-  } catch (error: any) {
-    console.error('Form submission error:', error);
-
-    onError(error, statusElement);
-
-  } finally {
-
-    if (submitButton) {
-      submitButton.disabled = false;
-      submitButton.textContent = originalButtonText;
-    }
-  }
-}
-
-export function setupFormSubmitListener(options: SimpleFormSubmitOptions): void {
-  const { formElement } = options;
-  if (!formElement) {
-    console.error('Form submission listener requires a formElement.');
-    return;
-  }
-
-  formElement.addEventListener('submit', async (event) => {
-    event.preventDefault(); 
-    await submitFormData(options); 
-  });
-}
-
-export function resetTurnstileWidget(formElement: HTMLFormElement | null): void {
-  if (!formElement) return;
-  try {
-
-    const widgetElement = formElement.querySelector<HTMLElement>('.cf-turnstile');
-
-    if (widgetElement && typeof (window as any).turnstile?.reset === 'function') {
-      (window as any).turnstile.reset(widgetElement); 
-      console.log("Turnstile widget reset.");
-    } else if (widgetElement) {
-
-      console.warn("Turnstile widget found, but reset function is not available on window.turnstile.");
-    }
-
-  } catch (e) {
-
-    console.warn("Could not reset Turnstile widget", e);
-  }
-}
-
-export interface OrderFormSubmitOptions {
-  formElement: HTMLFormElement;
-  statusElement: HTMLElement | null;
-  submitButton: HTMLButtonElement | null;
-
-  authEndpoint?: string;
-
-  onSuccess: (data: any, formElement: HTMLFormElement) => void;
-  onError: (error: Error, statusElement: HTMLElement | null) => void;
-
-  initializingText?: string;
-  submittingText?: string;
-
-}
-
-export async function submitOrderForm(options: OrderFormSubmitOptions): Promise<void> {
-  const {
-    formElement,
-    statusElement,
-    submitButton,
-    authEndpoint = '/api/auth/anonymous', 
-    onSuccess,
-    onError,
-    initializingText = 'Initializing...',
-    submittingText = 'Submitting Order...',
-  } = options;
-
-  if (!formElement || !submitButton || !statusElement) {
-    console.error("submitOrderForm requires formElement, submitButton, and statusElement.");
+    const originalButtonText = submitButton?.dataset.originalText || 'Submit';
 
     if (statusElement) {
-      statusElement.textContent = "Form initialization error.";
-      statusElement.style.color = "red";
+        statusElement.textContent = '';
+        statusElement.style.color = 'inherit';
     }
-    return; 
-  }
 
-  if (!submitButton.dataset.originalText) {
-    submitButton.dataset.originalText = submitButton.textContent || 'Submit Order';
-  }
-  const originalButtonText = submitButton.dataset.originalText; 
-
-  statusElement.textContent = '';
-  statusElement.style.color = 'inherit';
-
-  submitButton.disabled = true;
-  submitButton.textContent = initializingText;
-  statusElement.textContent = "Ensuring session..."; 
-
-  try {
-
-    console.log(`Calling anonymous auth endpoint: ${authEndpoint}`);
-    const authResponse = await fetch(authEndpoint, { method: "POST" });
-
-    if (!authResponse.ok) {
-      let errorMsg = `Authentication setup failed (${authResponse.status})`;
-      try {
-
-        const errorData = await authResponse.json();
-        errorMsg = errorData.error || errorMsg;
-      } catch (e) {
-
-        console.warn(`Auth response was not OK (${authResponse.status}) and not JSON.`);
-      }
-
-      throw new Error(errorMsg);
+    const payload = preparePayload();
+    if (payload === null) {
+        if (submitButton && submitButton.disabled) {
+            submitButton.disabled = false;
+            submitButton.textContent = originalButtonText;
+        }
+        return;
     }
-    console.log("Anonymous session ensured successfully.");
-    statusElement.textContent = "Preparing order..."; 
+
+    if (submitButton) {
+        submitButton.disabled = true;
+        submitButton.textContent = submittingText;
+    }
+
+    try {
+        const response = await fetch(endpoint, {
+            method: method.toUpperCase(),
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+            },
+            body: JSON.stringify(payload),
+        });
+
+        let data: any;
+        try {
+            data = await response.json();
+        } catch (jsonError) {
+            if (!response.ok) {
+                throw new Error(`HTTP error! Status: ${response.status}, Response not JSON.`);
+            }
+            console.warn("Response was OK but not valid JSON.");
+            data = null;
+        }
+
+        if (!response.ok) {
+            const errorMessage = data?.error || `HTTP error! Status: ${response.status}`;
+            throw new Error(errorMessage);
+        }
+
+        onSuccess(data, formElement);
+
+    } catch (error: any) {
+        console.error('JSON Form submission error:', error);
+        onError(error, statusElement);
+    } finally {
+        if (submitButton) {
+            submitButton.disabled = false;
+            submitButton.textContent = originalButtonText;
+        }
+    }
+}
+
+export function setupFormSubmitListener(options: JsonFormSubmitOptions): void {
+    const { formElement } = options;
+    if (!formElement) {
+        console.error('Form submission listener requires a formElement.');
+        return;
+    }
+
+    formElement.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        await submitJsonData(options); 
+    });
+}
+
+export async function submitFormDataWithFiles(options: FormDataSubmitOptions): Promise<void> {
+    const {
+        formElement,
+        statusElement,
+        submitButton,
+        onSuccess,
+        onError,
+        submittingText = 'Submitting...',
+    } = options;
+
+    if (!formElement || !submitButton || !statusElement) {
+        console.error("submitFormDataWithFiles requires formElement, submitButton, and statusElement.");
+        if (statusElement) {
+            statusElement.textContent = "Form submission setup error.";
+            statusElement.style.color = "red";
+        }
+        return;
+    }
+
+    if (!submitButton.dataset.originalText) {
+        submitButton.dataset.originalText = submitButton.textContent || 'Submit';
+    }
+    const originalButtonText = submitButton.dataset.originalText;
+
+    statusElement.textContent = '';
+    statusElement.style.color = 'inherit';
+
+    submitButton.disabled = true;
+    submitButton.textContent = submittingText;
+    statusElement.textContent = "Submitting (this may take a moment)..."; 
+
+    const apiEndpoint = formElement.action;
+    if (!apiEndpoint) {
+        onError(new Error("Form action attribute is missing or empty."), statusElement);
+        submitButton.disabled = false;
+        submitButton.textContent = originalButtonText;
+        return;
+    }
 
     const formData = new FormData(formElement);
 
-    const apiEndpoint = formElement.action; 
-    if (!apiEndpoint) {
-      throw new Error("Form action attribute is missing or empty.");
-    }
-    console.log(`Submitting FormData to API endpoint: ${apiEndpoint}`);
-    submitButton.textContent = submittingText; 
-    statusElement.textContent = "Submitting order (this may take a moment)..."; 
-
-    const response = await fetch(apiEndpoint, {
-      method: "POST", 
-      body: formData,
-
-    });
-
-    let responseData: any = null; 
     try {
-      const contentType = response.headers.get("content-type");
-      if (contentType && contentType.includes("application/json")) {
-        responseData = await response.json(); 
-      } else if (!response.ok) {
+        console.log(`Submitting FormData to API endpoint: ${apiEndpoint}`);
 
-        const textResponse = await response.text();
-        console.error(`Server error response (non-JSON): Status ${response.status}, Body: ${textResponse.substring(0, 500)}...`);
+        const response = await fetch(apiEndpoint, {
+            method: "POST", 
+            body: formData,
 
-        throw new Error(`Server error: Status ${response.status}. Check server logs for details.`);
-      } else {
+        });
 
-        console.warn(`Response from ${apiEndpoint} was OK (${response.status}) but not JSON.`);
+        let responseData: any = null;
+        try {
+            const contentType = response.headers.get("content-type");
+            if (contentType && contentType.includes("application/json")) {
+                responseData = await response.json();
+            } else if (!response.ok) {
+                const textResponse = await response.text();
+                console.error(`Server error response (non-JSON): Status ${response.status}, Body: ${textResponse.substring(0, 500)}...`);
+                throw new Error(`Server error: Status ${response.status}. Check server logs for details.`);
+            } else {
+                console.warn(`Response from ${apiEndpoint} was OK (${response.status}) but not JSON.`);
 
-      }
-    } catch (parseError: any) {
+            }
+        } catch (parseError: any) {
+            console.error("Error processing server response:", parseError);
+            if (!response.ok) {
+                throw new Error(`Failed to process server error response: Status ${response.status}`);
+            } else {
 
-      console.error("Error processing server response:", parseError);
-      if (!response.ok) {
+                console.warn(`Successfully submitted but failed to parse response: ${parseError.message}`);
 
-        throw new Error(`Failed to process server error response: Status ${response.status}`);
-      } else {
+            }
+        }
 
-        throw new Error(`Failed to process successful server response: ${parseError.message || "Unknown processing error"}`);
-      }
+        if (!response.ok) {
+            const errorMessage = responseData?.error || `Submission failed with status: ${response.status}`;
+            throw new Error(errorMessage);
+        }
+
+        console.log("FormData submitted successfully via helper.");
+        onSuccess(responseData, formElement); 
+
+    } catch (error: any) {
+        console.error("FormData submission process error:", error);
+        onError(error, statusElement); 
+    } finally {
+        console.log("Resetting form UI state and Turnstile widget.");
+        resetTurnstileWidget(formElement); 
+
+        if (submitButton) {
+            submitButton.disabled = false;
+            submitButton.textContent = originalButtonText;
+        }
     }
+}
 
-    if (!response.ok) {
+export function resetTurnstileWidget(formElement: HTMLFormElement | null): void {
 
-      const errorMessage = responseData?.error || `Submission failed with status: ${response.status}`;
-      throw new Error(errorMessage);
+    if (!formElement) return;
+    try {
+        const widgetElement = formElement.querySelector<HTMLElement>('.cf-turnstile');
+        if (widgetElement && typeof (window as any).turnstile?.reset === 'function') {
+            (window as any).turnstile.reset(widgetElement);
+            console.log("Turnstile widget reset.");
+        } else if (widgetElement) {
+            console.warn("Turnstile widget found, but reset function is not available on window.turnstile.");
+        }
+    } catch (e) {
+        console.warn("Could not reset Turnstile widget", e);
     }
-
-    console.log("Order form submitted successfully via helper.");
-    onSuccess(responseData, formElement); 
-
-  } catch (error: any) {
-
-    console.error("Order submission process error:", error);
-
-    onError(error, statusElement); 
-
-  } finally {
-
-    console.log("Resetting form UI state and Turnstile widget.");
-    resetTurnstileWidget(formElement); 
-
-    if (submitButton) {
-      submitButton.disabled = false;
-      submitButton.textContent = originalButtonText;
-    }
-  }
 }
 ```
 ---
 
 `src/scripts/orderFormClient.ts`:
 ```
-import { submitOrderForm } from "./formHandler"; 
-import type { OrderFormSubmitOptions } from "./formHandler"; 
+import { submitFormDataWithFiles } from "./formHandler"; 
+import type { FormDataSubmitOptions } from "../types/types"; 
 
 const form = document.getElementById("order-form") as HTMLFormElement | null;
 const orderFilesInput = document.getElementById("order-files") as HTMLInputElement | null;
@@ -2494,17 +2433,15 @@ const schoolCheckbox = document.getElementById("is-school") as HTMLInputElement 
 const submitButton = document.getElementById("submit-order-button") as HTMLButtonElement | null;
 const statusDiv = document.getElementById("order-status") as HTMLElement | null;
 
-let packageMap: { [key: string]: string } = { "1": "Basic", "2": "Standard", "3": "Premium" }; 
+let packageMap: { [key: string]: string } = { "1": "Basic", "2": "Standard", "3": "Premium" };
 if (form?.dataset.packageMap) {
     try {
         packageMap = JSON.parse(form.dataset.packageMap);
     } catch (e) {
         console.error("Failed to parse package map data from form attribute:", e);
-
     }
 } else {
     console.warn("Package map data attribute not found on form. Using default map.");
-
 }
 
 if (
@@ -2526,137 +2463,164 @@ if (
         const selectedValue = packageSlider.value;
         packageDisplay.textContent = packageMap[selectedValue] || "Unknown";
     });
-
     packageDisplay.textContent = packageMap[packageSlider.value] || "Unknown";
 
     disadvantageCheckbox.addEventListener("change", () => {
         if (disadvantageCheckbox.checked) {
             certificateContainer.classList.remove("hidden");
-            certificateInput.required = true; 
+            certificateInput.required = true;
         } else {
             certificateContainer.classList.add("hidden");
-            certificateInput.required = false; 
-            certificateInput.value = ""; 
+            certificateInput.required = false;
+            certificateInput.value = "";
         }
     });
 
     form.addEventListener("submit", async (event) => {
         event.preventDefault(); 
 
-        statusDiv.textContent = ''; 
+        // --- Turnstile presence check ---
+        const turnstileWidget = document.querySelector('.cf-turnstile');
+        if (!turnstileWidget) {
+            statusDiv.textContent = "Verification failed to load. Please check your internet connection and refresh the page.";
+            statusDiv.className = 'status-message status-error';
+            return;
+        }
+
+        statusDiv.textContent = '';
         statusDiv.style.color = 'inherit';
         statusDiv.style.removeProperty('background-color');
         statusDiv.style.removeProperty('border');
+        statusDiv.className = 'status-message'; 
 
         if (!orderFilesInput.files || orderFilesInput.files.length === 0 || Array.from(orderFilesInput.files).every(f => f.size === 0)) {
             statusDiv.textContent = "Please select at least one document file.";
-            statusDiv.style.color = "red";
+            statusDiv.style.color = "red"; statusDiv.classList.add('status-error');
             orderFilesInput.focus();
             return;
         }
         if (disadvantageCheckbox.checked && (!certificateInput.files || certificateInput.files.length === 0 || certificateInput.files[0].size === 0)) {
             statusDiv.textContent = "Please upload proof for economic disadvantage.";
-            statusDiv.style.color = "red";
+            statusDiv.style.color = "red"; statusDiv.classList.add('status-error');
             certificateInput.focus();
             return;
         }
         if (!nameInput.value.trim()) {
             statusDiv.textContent = "Please enter your name.";
-            statusDiv.style.color = "red";
+            statusDiv.style.color = "red"; statusDiv.classList.add('status-error');
             nameInput.focus();
             return;
         }
         if (!phoneInput.value.trim()) {
-
             statusDiv.textContent = "Please enter your phone number.";
-            statusDiv.style.color = "red";
+            statusDiv.style.color = "red"; statusDiv.classList.add('status-error');
             phoneInput.focus();
             return;
         }
 
-        const onSuccessHandler = (data: any, formElement: HTMLFormElement) => {
-            if (statusDiv) {
+        if (!submitButton.dataset.originalText) {
+            submitButton.dataset.originalText = submitButton.textContent || 'Submit Order';
+        }
+        const originalButtonText = submitButton.dataset.originalText;
 
-                statusDiv.textContent = `Order submitted successfully! Order ID: ${data?.id || "[Unknown ID]"}`;
-                statusDiv.style.color = "green";
+        submitButton.disabled = true;
+        submitButton.textContent = "Initializing...";
+        statusDiv.textContent = "Ensuring session...";
+        statusDiv.classList.add('status-info'); 
 
-                statusDiv.style.backgroundColor = "#d4edda";
-                statusDiv.style.borderColor = "#c3e6cb";
+        try {
+            console.log("Attempting anonymous auth...");
+            const authResponse = await fetch('/api/auth/anonymous', { method: "POST" });
+            if (!authResponse.ok) {
+                let errorMsg = `Authentication setup failed (${authResponse.status})`;
+                try {
+                    const errorData = await authResponse.json();
+                    errorMsg = errorData?.error || errorMsg;
+                } catch (e) {  }
+                throw new Error(errorMsg); 
             }
-            formElement.reset(); 
+            console.log("Anonymous session ensured successfully.");
+
+            statusDiv.textContent = "";
+            statusDiv.className = 'status-message';
+
+        } catch (authError: any) {
+            console.error("Anonymous auth error:", authError);
+            statusDiv.textContent = `Error: ${authError.message || "Could not initialize session."}`;
+            statusDiv.style.color = "red"; 
+            statusDiv.className = 'status-message status-error'; 
+            submitButton.disabled = false; 
+            submitButton.textContent = originalButtonText;
+            return; 
+        }
+
+        const onSuccessHandler = (data: any, formElement: HTMLFormElement) => {
+            statusDiv.textContent = `Order submitted successfully! Order ID: ${data?.id || "[Unknown ID]"}`;
+            statusDiv.className = 'status-message status-success'; 
+            formElement.reset();
 
             if (packageSlider && packageDisplay) {
-                packageSlider.value = "1"; 
-                packageDisplay.textContent = packageMap[packageSlider.value] || "Unknown"; 
+                packageSlider.value = "1";
+                packageDisplay.textContent = packageMap[packageSlider.value] || "Unknown";
             }
             if (certificateContainer && certificateInput) {
-                certificateContainer.classList.add("hidden"); 
-                certificateInput.required = false; 
+                certificateContainer.classList.add("hidden");
+                certificateInput.required = false;
             }
 
             setTimeout(() => {
                 if (statusDiv) {
                     statusDiv.textContent = "";
-                    statusDiv.style.color = 'inherit'; 
-                    statusDiv.style.removeProperty('background-color');
-                    statusDiv.style.removeProperty('border');
+                    statusDiv.className = 'status-message'; 
                 }
-            }, 8000); 
+            }, 8000);
         };
 
         const onErrorHandler = (error: Error, statusElement: HTMLElement | null) => {
-            if (statusElement) {
-                let displayMessage = "An unexpected error occurred during submission.";
+             if (!statusElement) return;
+             let displayMessage = "An unexpected error occurred during submission.";
 
-                if (error.message) {
+            if (error.message) {
+                 if (error.message.includes("CAPTCHA verification failed")) {
+                     displayMessage = "CAPTCHA verification failed. Please try again.";
+                 } else if (error.message.includes("Bad Request:")) {
+                     displayMessage = error.message.replace("Bad Request: ", "");
+                 } else if (error.message.includes("Failed to upload file")) {
+                     displayMessage = "Error uploading file. Please ensure files are valid and try again.";
+                 } else if (error.message.includes("Server error:")) {
+                     displayMessage = "Order submission failed due to a server issue. Please try again later or contact support.";
+                 } else if (error.message.startsWith("Submission failed with status:")) {
+                      displayMessage = "Order submission failed. Please check your input and try again.";
+                 } else {
 
-                    if (error.message.includes("CAPTCHA verification failed")) {
-                        displayMessage = "CAPTCHA verification failed. Please try again.";
-                    } else if (error.message.includes("Bad Request:")) {
-                        displayMessage = error.message.replace("Bad Request: ", ""); 
-                    } else if (error.message.includes("Failed to upload file")) {
-                        displayMessage = "Error uploading file. Please ensure files are valid and try again.";
-                    } else {
-
-                        displayMessage = "Order submission failed. Please try again later or contact support.";
-                    }
-                }
-
-                statusElement.textContent = `Error: ${displayMessage}`;
-                statusElement.style.color = "red";
-
-                statusElement.style.backgroundColor = "#f8d7da";
-                statusElement.style.borderColor = "#f5c6cb";
+                     displayMessage = error.message;
+                 }
             }
+            statusElement.textContent = `Error: ${displayMessage}`;
+            statusElement.className = 'status-message status-error'; 
         };
 
-        const options: OrderFormSubmitOptions = {
+        const options: FormDataSubmitOptions = {
             formElement: form,
             statusElement: statusDiv,
             submitButton: submitButton,
             onSuccess: onSuccessHandler,
             onError: onErrorHandler,
-
+            submittingText: "Uploading & Submitting...", 
         };
 
-        await submitOrderForm(options);
+        await submitFormDataWithFiles(options);
+
     });
 
 } else {
 
-    console.error("Could not find all required elements for the order form script. Check element IDs and ensure they exist in the HTML.", {
-        form: !!form, orderFilesInput: !!orderFilesInput, nameInput: !!nameInput, phoneInput: !!phoneInput,
-        packageSlider: !!packageSlider, packageDisplay: !!packageDisplay, disadvantageCheckbox: !!disadvantageCheckbox,
-        certificateContainer: !!certificateContainer, certificateInput: !!certificateInput, schoolCheckbox: !!schoolCheckbox,
-        submitButton: !!submitButton, statusDiv: !!statusDiv
-    });
-
-    const errorDisplay = statusDiv || document.getElementById("order-status"); 
+    console.error("Could not find all required elements for the order form script.", {  });
+    const errorDisplay = statusDiv || document.getElementById("order-status");
     if (errorDisplay) {
         errorDisplay.textContent = "Error initializing the order form. Please refresh the page or contact support.";
         errorDisplay.style.color = "red";
-         errorDisplay.style.backgroundColor = "#f8d7da"; 
-         errorDisplay.style.borderColor = "#f5c6cb"; 
+        errorDisplay.className = 'status-message status-error';
     }
 }
 ```
@@ -2798,22 +2762,36 @@ export async function createOrder(
 
 `src/types/types.ts`:
 ```
-export interface FormSubmitOptions {
+export interface JsonFormSubmitOptions {
   formElement: HTMLFormElement;
   statusElement: HTMLElement | null;
   submitButton: HTMLButtonElement | null;
 
-  preparePayload: () => Record<string, any> | null;
+  preparePayload: () => Record<string, any> | null; 
 
   onSuccess: (data: any, formElement: HTMLFormElement) => void;
   onError: (error: Error, statusElement: HTMLElement | null) => void;
 
-  endpoint?: string;
-  method?: string;
+  endpoint?: string; 
+  method?: string; 
 
-  submittingText?: string;
+  submittingText?: string; 
   submitText?: string; 
 }
+
+export interface FormDataSubmitOptions {
+  formElement: HTMLFormElement; 
+  statusElement: HTMLElement | null;
+  submitButton: HTMLButtonElement | null;
+
+  onSuccess: (data: any, formElement: HTMLFormElement) => void;
+  onError: (error: Error, statusElement: HTMLElement | null) => void;
+
+  submittingText?: string; 
+  submitText?: string; 
+}
+
+export type FormSubmitOptions = JsonFormSubmitOptions;
 ```
 ---
 

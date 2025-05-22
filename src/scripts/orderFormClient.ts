@@ -60,6 +60,14 @@ if (
     form.addEventListener("submit", async (event) => {
         event.preventDefault(); 
 
+        // --- Turnstile presence check ---
+        const turnstileWidget = document.querySelector('.cf-turnstile');
+        if (!turnstileWidget) {
+            statusDiv.textContent = "Verification failed to load. Please check your internet connection and refresh the page.";
+            statusDiv.className = 'status-message status-error';
+            return;
+        }
+
         statusDiv.textContent = '';
         statusDiv.style.color = 'inherit';
         statusDiv.style.removeProperty('background-color');
