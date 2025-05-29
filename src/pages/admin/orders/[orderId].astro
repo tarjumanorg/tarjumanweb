@@ -1,10 +1,12 @@
 ---
 import AdminLayout from "../../../layouts/AdminLayout.astro";
 import { formatDate } from "../../../utils/dateUtils";
-import type {
-    ApiOrderResponse,
-} from "../../../utils/storageUtils";
+import type { ApiOrderResponse } from "../../../utils/storageUtils";
 import type { SignedFileInfo } from '../../../schemas/order.schema';
+import { supabaseAdmin } from '../../../lib/supabaseAdmin';
+import { handleSupabaseError } from '../../../utils/supabaseUtils';
+import { OrderSchema, AdminOrderDetailResponseSchema } from '../../../schemas/order.schema';
+import { enrichOrderWithSignedUrls } from '../../../utils/storageUtils';
 
 const { orderId } = Astro.params;
 let order: ApiOrderResponse | null = null;
@@ -16,35 +18,23 @@ if (!orderId || isNaN(Number(orderId))) {
 } else {
     orderIdNum = Number(orderId);
     try {
-        console.log(
-            `Admin Detail Page: Fetching order ${orderIdNum} server-side...`,
-        );
-        const response = await fetch(
-            `${Astro.url.origin}/api/admin/orders/${orderIdNum}`,
-            {
-                headers: {
-                    Cookie: Astro.request.headers.get("cookie") || "",
-                },
-            },
-        );
-
-        if (!response.ok) {
-            const errorData = await response
-                .json()
-                .catch(() => ({ error: `HTTP error ${response.status}` }));
-            errorMessage = `Failed to fetch order details: ${response.status} - ${errorData.error || "Unknown API error"}`;
-            if (response.status === 404)
-                errorMessage = `Order with ID ${orderIdNum} not found.`;
-            else if (response.status === 401 || response.status === 403)
-                errorMessage = "Unauthorized or Forbidden.";
-            else {
-                errorMessage = `Failed to load order details (${response.status}). Please try again later.`;
-            }
+        // Direct DB call using supabaseAdmin
+        const { data: orderData, error: fetchError } = await supabaseAdmin
+            .from("orders")
+            .select(`*`)
+            .eq("id", orderIdNum)
+            .single();
+        handleSupabaseError(fetchError, `fetch order ${orderIdNum} (admin page)`);
+        if (!orderData) {
+            errorMessage = `Order with ID ${orderIdNum} not found.`;
         } else {
-            order = (await response.json()) as ApiOrderResponse;
-            console.log(
-                `Admin Detail Page: Successfully fetched order ${orderIdNum} with file info.`,
-            );
+            const enriched = await enrichOrderWithSignedUrls(orderData);
+            const parseResult = AdminOrderDetailResponseSchema.safeParse(enriched);
+            if (!parseResult.success) {
+                console.error('Admin Order Detail page response validation failed:', parseResult.error.flatten());
+                throw new Error('Internal error: Invalid data format for order details.');
+            }
+            order = parseResult.data;
         }
     } catch (e: any) {
         console.error(

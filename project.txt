@@ -249,6 +249,7 @@ const canonicalURL = new URL(Astro.url).href;
 `src/layouts/AdminLayout.astro`:
 ```
 ---
+import BaseLayout from '../layout/Layout.astro';
 
 interface Props {
   title: string;
@@ -258,31 +259,25 @@ const { title } = Astro.props;
 const siteTitle = "Tarjuman Admin";
 ---
 
-  <head>
-    <meta charset="utf-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width" />
-    <meta name="generator" content={Astro.generator} />
-    <title>{title} | {siteTitle}</title>
-    <style>
-       button:disabled { background-color: #ccc; cursor: not-allowed; }
-    </style>
-  </head>
-  <body>
-    <nav>
-      <div class="container">
-        <a href="/admin"><strong>{siteTitle}</strong></a>
-        <a href="/admin/orders">Manage Orders</a>
-        <a href="/api/auth/signout" style="float: right;">Sign Out</a>
-        
-      </div>
-    </nav>
-    <main>
-      <div class="container">
-        <h1>{title}</h1>
-        <slot />
-      </div>
-    </main>
+<BaseLayout title={`${title} | ${siteTitle}`}>
+  <nav class="admin-nav">
+    <div class="container">
+      <a href="/admin"><strong>{siteTitle}</strong></a>
+      <a href="/admin/orders">Manage Orders</a>
+      <a href="/api/auth/signout" style="float: right;">Sign Out</a>
+    </div>
+  </nav>
+  <main class="admin-main">
+    <div class="container">
+      <h1>{title}</h1>
+      <slot />
+    </div>
+  </main>
+  <style>
+    /* Admin specific styles */
+    .admin-nav button:disabled { background-color: #ccc; cursor: not-allowed; }
+  </style>
+</BaseLayout>
 ```
 ---
 
@@ -722,32 +717,49 @@ return Astro.redirect('/admin/orders');
 ```
 ---
 import AdminLayout from "../../../layouts/AdminLayout.astro";
-import type { Order } from "../../../schemas/order.schema";
-import { formatDate } from "../../../utils/dateUtils"; 
+import { formatDate } from "../../../utils/dateUtils";
+import { supabaseAdmin } from '../../../lib/supabaseAdmin';
+import { OrderSchema } from '../../../schemas/order.schema';
+import { handleSupabaseError } from '../../../utils/supabaseUtils';
 
-let orders: Order[] = [];
+// Use a local type for the admin table view
+interface AdminOrderTableRow {
+  id: number;
+  user_id: string;
+  orderer_name: string;
+  status: "pending" | "processing" | "completed" | "cancelled";
+  created_at: string;
+  package_tier?: string | null;
+}
+
+let orders: AdminOrderTableRow[] = [];
 let errorMessage: string | null = null;
 
 try {
-  const response = await fetch(`${Astro.url.origin}/api/admin/orders`, {
-     headers: {
-         'Cookie': Astro.request.headers.get('cookie') || ''
-     }
+  // Direct DB call using supabaseAdmin
+  const { data, error } = await supabaseAdmin
+    .from("orders")
+    .select(`id, created_at, orderer_name, status, package_tier, user_id`)
+    .order("created_at", { ascending: false });
+  handleSupabaseError(error, "fetch all orders (admin page)");
+  const ResponseOrderSchema = OrderSchema.pick({
+    id: true,
+    created_at: true,
+    orderer_name: true,
+    status: true,
+    package_tier: true,
+    user_id: true,
   });
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({ error: `HTTP error ${response.status}` }));
-    throw new Error(errorData.error || `Failed to fetch orders: ${response.status}`);
+  const parseResult = ResponseOrderSchema.array().safeParse(data);
+  if (!parseResult.success) {
+    console.error('Admin Orders page response validation failed:', parseResult.error.flatten());
+    throw new Error('Internal error: Invalid data format for orders.');
   }
-  orders = await response.json();
-
+  orders = parseResult.data;
 } catch (e: any) {
-   console.error("Error fetching admin orders:", e);
-
-   errorMessage = "Could not load orders. Please check server logs or try again later.";
-
+  console.error("Error fetching admin orders:", e);
+  errorMessage = "Could not load orders. Please check server logs or try again later.";
 }
-
 ---
 
 <AdminLayout title="Manage Orders">
@@ -794,10 +806,12 @@ try {
 ---
 import AdminLayout from "../../../layouts/AdminLayout.astro";
 import { formatDate } from "../../../utils/dateUtils";
-import type {
-    ApiOrderResponse,
-} from "../../../utils/storageUtils";
+import type { ApiOrderResponse } from "../../../utils/storageUtils";
 import type { SignedFileInfo } from '../../../schemas/order.schema';
+import { supabaseAdmin } from '../../../lib/supabaseAdmin';
+import { handleSupabaseError } from '../../../utils/supabaseUtils';
+import { OrderSchema, AdminOrderDetailResponseSchema } from '../../../schemas/order.schema';
+import { enrichOrderWithSignedUrls } from '../../../utils/storageUtils';
 
 const { orderId } = Astro.params;
 let order: ApiOrderResponse | null = null;
@@ -809,35 +823,23 @@ if (!orderId || isNaN(Number(orderId))) {
 } else {
     orderIdNum = Number(orderId);
     try {
-        console.log(
-            `Admin Detail Page: Fetching order ${orderIdNum} server-side...`,
-        );
-        const response = await fetch(
-            `${Astro.url.origin}/api/admin/orders/${orderIdNum}`,
-            {
-                headers: {
-                    Cookie: Astro.request.headers.get("cookie") || "",
-                },
-            },
-        );
-
-        if (!response.ok) {
-            const errorData = await response
-                .json()
-                .catch(() => ({ error: `HTTP error ${response.status}` }));
-            errorMessage = `Failed to fetch order details: ${response.status} - ${errorData.error || "Unknown API error"}`;
-            if (response.status === 404)
-                errorMessage = `Order with ID ${orderIdNum} not found.`;
-            else if (response.status === 401 || response.status === 403)
-                errorMessage = "Unauthorized or Forbidden.";
-            else {
-                errorMessage = `Failed to load order details (${response.status}). Please try again later.`;
-            }
+        // Direct DB call using supabaseAdmin
+        const { data: orderData, error: fetchError } = await supabaseAdmin
+            .from("orders")
+            .select(`*`)
+            .eq("id", orderIdNum)
+            .single();
+        handleSupabaseError(fetchError, `fetch order ${orderIdNum} (admin page)`);
+        if (!orderData) {
+            errorMessage = `Order with ID ${orderIdNum} not found.`;
         } else {
-            order = (await response.json()) as ApiOrderResponse;
-            console.log(
-                `Admin Detail Page: Successfully fetched order ${orderIdNum} with file info.`,
-            );
+            const enriched = await enrichOrderWithSignedUrls(orderData);
+            const parseResult = AdminOrderDetailResponseSchema.safeParse(enriched);
+            if (!parseResult.success) {
+                console.error('Admin Order Detail page response validation failed:', parseResult.error.flatten());
+                throw new Error('Internal error: Invalid data format for order details.');
+            }
+            order = parseResult.data;
         }
     } catch (e: any) {
         console.error(
@@ -1212,8 +1214,9 @@ export const GET: APIRoute = async ({ locals }) => {
         const parseResult = ResponseOrderSchema.array().safeParse(data);
         if (!parseResult.success) {
           console.error('Admin Orders GET response validation failed:', parseResult.error.flatten());
-  }
-        return jsonResponse(200, data as Order[] || []); 
+          return jsonErrorResponse(500, "Internal server error: Invalid data format for orders.");
+        }
+        return jsonResponse(200, parseResult.data || []); 
 
     } catch (error: any) {
         console.error(`API Error (GET /api/admin/orders with service client):`, error.message);
@@ -1273,10 +1276,9 @@ export const GET: APIRoute = async ({ params, locals }) => {
         const parseResult = AdminOrderDetailResponseSchema.safeParse(responseData);
         if (!parseResult.success) {
             console.error('Admin Order Detail GET response validation failed:', parseResult.error.flatten());
-       }
-
-        console.log(`API Route: Generated signed URLs for order ${idNum}. Returning enhanced data.`);
-        return jsonResponse(200, responseData);
+            return jsonErrorResponse(500, "Internal server error: Invalid data format for order details.");
+        }
+        return jsonResponse(200, parseResult.data);
 
     } catch (error: any) {
         console.error(`API Error (GET /api/admin/orders/${orderId} with service client):`, error.message);

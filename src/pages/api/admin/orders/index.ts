@@ -43,8 +43,9 @@ export const GET: APIRoute = async ({ locals }) => {
         const parseResult = ResponseOrderSchema.array().safeParse(data);
         if (!parseResult.success) {
           console.error('Admin Orders GET response validation failed:', parseResult.error.flatten());
-  }
-        return jsonResponse(200, data as Order[] || []); 
+          return jsonErrorResponse(500, "Internal server error: Invalid data format for orders.");
+        }
+        return jsonResponse(200, parseResult.data || []); 
 
     } catch (error: any) {
         console.error(`API Error (GET /api/admin/orders with service client):`, error.message);

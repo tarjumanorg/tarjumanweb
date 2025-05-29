@@ -1,31 +1,48 @@
 ---
 import AdminLayout from "../../../layouts/AdminLayout.astro";
-import type { Order } from "../../../schemas/order.schema";
-import { formatDate } from "../../../utils/dateUtils"; 
+import { formatDate } from "../../../utils/dateUtils";
+import { supabaseAdmin } from '../../../lib/supabaseAdmin';
+import { OrderSchema } from '../../../schemas/order.schema';
+import { handleSupabaseError } from '../../../utils/supabaseUtils';
 
-let orders: Order[] = [];
+// Use a local type for the admin table view
+interface AdminOrderTableRow {
+  id: number;
+  user_id: string;
+  orderer_name: string;
+  status: "pending" | "processing" | "completed" | "cancelled";
+  created_at: string;
+  package_tier?: string | null;
+}
+
+let orders: AdminOrderTableRow[] = [];
 let errorMessage: string | null = null;
 
 try {
-  const response = await fetch(`${Astro.url.origin}/api/admin/orders`, {
-     headers: {
-         'Cookie': Astro.request.headers.get('cookie') || ''
-     }
+  // Direct DB call using supabaseAdmin
+  const { data, error } = await supabaseAdmin
+    .from("orders")
+    .select(`id, created_at, orderer_name, status, package_tier, user_id`)
+    .order("created_at", { ascending: false });
+  handleSupabaseError(error, "fetch all orders (admin page)");
+  const ResponseOrderSchema = OrderSchema.pick({
+    id: true,
+    created_at: true,
+    orderer_name: true,
+    status: true,
+    package_tier: true,
+    user_id: true,
   });
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({ error: `HTTP error ${response.status}` }));
-    throw new Error(errorData.error || `Failed to fetch orders: ${response.status}`);
+  const parseResult = ResponseOrderSchema.array().safeParse(data);
+  if (!parseResult.success) {
+    console.error('Admin Orders page response validation failed:', parseResult.error.flatten());
+    throw new Error('Internal error: Invalid data format for orders.');
   }
-  orders = await response.json();
-
+  orders = parseResult.data;
 } catch (e: any) {
-   console.error("Error fetching admin orders:", e);
-
-   errorMessage = "Could not load orders. Please check server logs or try again later.";
-
+  console.error("Error fetching admin orders:", e);
+  errorMessage = "Could not load orders. Please check server logs or try again later.";
 }
-
 ---
 
 <AdminLayout title="Manage Orders">
