@@ -97,21 +97,35 @@ export const PATCH: APIRoute = async ({ request, params, locals }) => {
         return jsonErrorResponse(400, "No valid fields provided for update.");
     }
 
+    // --- Auto-advance status if page_count is set for the first time ---
+    if (updateData.page_count && updateData.page_count > 0) {
+        // Fetch current order to check previous page_count and status
+        const { data: currentOrderData, error: fetchCurrentError } = await supabaseAdmin
+            .from("orders")
+            .select("status, page_count")
+            .eq("id", idNum)
+            .single();
+        handleSupabaseError(fetchCurrentError, `fetch current order for status auto-advance`);
+        if (currentOrderData && !currentOrderData.page_count && currentOrderData.status === "Pending Page Count") {
+            if (!updateData.status) {
+                updateData.status = "Pending Package Confirmation";
+            }
+        }
+    }
+
     console.log(`API Route: Updating order ${idNum} using admin service client with data:`, updateData);
 
     try {
-
         const { data: updatedOrderData, error: updateError } = await supabaseAdmin
             .from("orders")
             .update(updateData)
             .eq("id", idNum)
-            .select() 
-            .single(); 
+            .select()
+            .single();
 
         handleSupabaseError(updateError, `update order ${idNum} (admin service)`);
 
         if (!updatedOrderData) {
-
              console.error(`API Logic Error: Order ${idNum} not found after PATCH attempt or update failed silently.`);
              return jsonErrorResponse(404, `Order with ID ${idNum} could not be found or updated.`);
         }
@@ -130,7 +144,7 @@ export const PATCH: APIRoute = async ({ request, params, locals }) => {
 
     } catch (error: any) {
         console.error(`API Error (PATCH /api/admin/orders/${orderId} with service client):`, error.message);
-        if (error.code === 'PGRST116' || error.message.includes('update order')) { 
+        if (error.code === 'PGRST116' || error.message.includes('update order')) {
              return jsonErrorResponse(404, `Order with ID ${idNum} not found when attempting update.`);
         }
          if (error.message.startsWith("Permission Denied:")) {

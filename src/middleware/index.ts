@@ -36,7 +36,9 @@ export const onRequest = defineMiddleware(
       if (user) {
         console.log(`Middleware: User ${user.id} verified via access token.`);
         locals.userId = user.id;
+        // Add anonymous flag for downstream logic
 
+        locals.isAnonymous = user.is_anonymous === true;
         if (user.app_metadata && user.app_metadata.is_admin === true) {
             console.log(`Middleware: User ${user.id} IS an admin.`);
             isAdmin = true;

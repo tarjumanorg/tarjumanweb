@@ -25,7 +25,40 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
       return jsonErrorResponse(500, "Failed to establish session."); 
   }
 
-  setAuthCookies(cookies, data.session);
+  // --- Anonymous to Permanent Account Linking Logic ---
+  // Check if there was an active anonymous session before OAuth
+  const { data: currentSessionData, error: sessionError } = await supabase.auth.getSession();
+  const currentSession = currentSessionData?.session;
+  const isAnonymous = currentSession?.user?.is_anonymous === true;
+
+  let finalSession = data.session;
+
+  if (isAnonymous) {
+    try {
+      // Attempt to link the OAuth identity to the anonymous user
+      const { error: linkError } = await supabase.auth.linkIdentity({ provider: 'google' });
+      if (linkError) {
+        if (linkError.message && linkError.message.toLowerCase().includes('already registered')) {
+          await supabase.auth.signOut();
+          finalSession = data.session;
+        } else {
+          console.error('linkIdentity error:', linkError.message);
+          finalSession = data.session;
+        }
+      } else {
+        // Linking succeeded, fetch the upgraded session
+        const { data: upgradedSessionData } = await supabase.auth.getSession();
+        if (upgradedSessionData?.session) {
+          finalSession = upgradedSessionData.session;
+        }
+      }
+    } catch (err) {
+      console.error('Exception during linkIdentity:', err);
+      finalSession = data.session;
+    }
+  }
+
+  setAuthCookies(cookies, finalSession);
 
   return redirect("/dashboard");
 };

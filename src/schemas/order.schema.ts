@@ -44,7 +44,7 @@ export const SignedFileInfoSchema = z.object({
   signedUrl: z.string().nullable(),
 });
 
-export const AdminOrderDetailResponseSchema = OrderSchema.partial().extend({
+export const AdminOrderDetailResponseSchema = OrderSchema.extend({
   uploaded_files_info: z.array(SignedFileInfoSchema.nullable()).optional(),
   certificate_info: SignedFileInfoSchema.nullable().optional(),
   translated_file_info: SignedFileInfoSchema.nullable().optional(),

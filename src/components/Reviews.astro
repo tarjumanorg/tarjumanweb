@@ -136,3 +136,36 @@ const { reviews } = Astro.props;
     );
   }
 </script>
+
+<script type="module">
+  import { supabase } from '../lib/supabase';
+
+  // Real-time updates for guestbook entries
+  function addReviewToUI(review) {
+    const reviewsList = document.getElementById('reviews-list');
+    let ul = reviewsList.querySelector('ul');
+    if (!ul) {
+      ul = document.createElement('ul');
+      reviewsList.innerHTML = '';
+      reviewsList.appendChild(ul);
+    }
+    const li = document.createElement('li');
+    li.innerHTML = `<p><strong>${review.name}</strong></p><p>${review.message}</p>`;
+    ul.appendChild(li);
+  }
+
+  // Subscribe to new guestbook entries
+  const channel = supabase
+    .channel('guestbook-changes')
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'guestbook' },
+      (payload) => {
+        addReviewToUI(payload.new);
+      }
+    )
+    .subscribe();
+
+  // Optionally, clean up on page unload
+  window.addEventListener('beforeunload', () => supabase.removeChannel(channel));
+</script>

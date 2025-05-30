@@ -174,33 +174,9 @@ if (!orderId || isNaN(Number(orderId))) {
                         <div class="form-group">
                             <label for="status">Status:</label>
                             <select id="status" name="status">
-                                <option
-                                    value="pending"
-                                    selected={order.status === "pending"}
-                                >
-                                    Pending
-                                </option>
-                                <option
-                                    value="processing"
-                                    selected={order.status === "processing"}
-                                >
-                                    Processing
-                                </option>
-                                <option
-                                    value="completed"
-                                    selected={order.status === "completed"}
-                                >
-                                    Completed
-                                </option>
-                                <option
-                                    value="cancelled"
-                                    selected={order.status === "cancelled"}
-                                >
-                                    Cancelled
-                                </option>
-                                <option value="" selected={!order.status}>
-                                    N/A
-                                </option>
+                                {OrderSchema.shape.status.options.map(option => (
+                                    <option value={option} selected={order.status === option}>{option}</option>
+                                ))}
                             </select>
                         </div>
                         <div class="form-group">

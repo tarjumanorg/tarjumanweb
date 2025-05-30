@@ -5,7 +5,7 @@ const title = "Order Details";
 const packages = PACKAGES_DETAILS;
 ---
 <Layout title={title}>
-  <main>
+  <main id="order-detail-main-content" data-packages={JSON.stringify(packages)}>
     <h1>{title}</h1>
     <section id="order-detail-section">
       <div id="order-detail-loading">Loading order details...</div>
@@ -14,8 +14,10 @@ const packages = PACKAGES_DETAILS;
     </section>
   </main>
   <script type="module">
-    // @ts-ignore
-    const packages = window.PACKAGES_DETAILS || [];
+    // Get the element holding the data
+    const mainContentElement = document.getElementById('order-detail-main-content');
+    // Parse the data attribute
+    const packages = JSON.parse(mainContentElement.dataset.packages || '[]');
     const orderId = window.location.pathname.split('/').pop();
     async function fetchOrder() {
       const loading = document.getElementById('order-detail-loading');
@@ -113,9 +115,5 @@ const packages = PACKAGES_DETAILS;
       }
     }
     fetchOrder();
-  </script>
-  <script>
-    // Safely expose packages to the client script
-    window.PACKAGES_DETAILS = JSON.parse('{JSON.stringify(packages)}');
   </script>
 </Layout>

@@ -82,11 +82,9 @@ export function setupOrderUpdateForm(
         if (status !== null && status !== undefined) {
             if (status === "") {
                 payload.status = null;
-            } else if (["pending", "processing", "completed", "cancelled"].includes(status as string)) {
-                payload.status = status as Order['status'];
             } else {
-                 if (statusElement) displayStatus(statusElement, 'Invalid status value selected.', 'error');
-                 return null;
+                // Accept any status from the schema
+                payload.status = status as Order['status'];
             }
         }
         if (pageCountRaw !== null && pageCountRaw !== '') {

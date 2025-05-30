@@ -3,6 +3,7 @@ import AdminLayout from "../../../layouts/AdminLayout.astro";
 import { formatDate } from "../../../utils/dateUtils";
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { OrderSchema } from '../../../schemas/order.schema';
+import type { Order } from '../../../schemas/order.schema';
 import { handleSupabaseError } from '../../../utils/supabaseUtils';
 
 // Use a local type for the admin table view
@@ -10,7 +11,7 @@ interface AdminOrderTableRow {
   id: number;
   user_id: string;
   orderer_name: string;
-  status: "pending" | "processing" | "completed" | "cancelled";
+  status: Order['status'];
   created_at: string;
   package_tier?: string | null;
 }

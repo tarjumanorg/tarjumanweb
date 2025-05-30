@@ -9,7 +9,7 @@ export async function createOrder(
     const operationContext = "create order";
     const insertData: Partial<Order> & { user_id: string; orderer_name: string; status: Order['status']; is_disadvantaged: boolean; is_school: boolean; } = {
       ...input,
-      status: "pending",
+      status: "Pending Page Count",
     };
 
     console.log("Service: Inserting data:", insertData); 

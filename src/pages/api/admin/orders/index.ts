@@ -6,6 +6,8 @@ import { handleSupabaseError } from "../../../../utils/supabaseUtils";
 import type { Order } from '../../../../schemas/order.schema';
 import { OrderSchema } from '../../../../schemas/order.schema';
 
+// NOTE: This endpoint is currently not used by the admin frontend UI, but is kept for future enhancements (e.g., client-side filtering, live updates, or SPA admin tools).
+
 export const GET: APIRoute = async ({ locals }) => {
     const adminUserId = locals.userId; 
 

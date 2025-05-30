@@ -29,6 +29,7 @@ export default defineConfig({
 declare namespace App {
   interface Locals {
     userId?: string;
+    isAnonymous?: boolean;
   }
 }
 ```
@@ -191,6 +192,39 @@ const { reviews } = Astro.props;
     );
   }
 </script>
+
+<script type="module">
+  import { supabase } from '../lib/supabase';
+
+  // Real-time updates for guestbook entries
+  function addReviewToUI(review) {
+    const reviewsList = document.getElementById('reviews-list');
+    let ul = reviewsList.querySelector('ul');
+    if (!ul) {
+      ul = document.createElement('ul');
+      reviewsList.innerHTML = '';
+      reviewsList.appendChild(ul);
+    }
+    const li = document.createElement('li');
+    li.innerHTML = `<p><strong>${review.name}</strong></p><p>${review.message}</p>`;
+    ul.appendChild(li);
+  }
+
+  // Subscribe to new guestbook entries
+  const channel = supabase
+    .channel('guestbook-changes')
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'guestbook' },
+      (payload) => {
+        addReviewToUI(payload.new);
+      }
+    )
+    .subscribe();
+
+  // Optionally, clean up on page unload
+  window.addEventListener('beforeunload', () => supabase.removeChannel(channel));
+</script>
 ```
 ---
 
@@ -262,8 +296,7 @@ const siteTitle = "Tarjuman Admin";
 <BaseLayout title={`${title} | ${siteTitle}`}>
   <nav class="admin-nav">
     <div class="container">
-      <a href="/admin"><strong>{siteTitle}</strong></a>
-      <a href="/admin/orders">Manage Orders</a>
+      <a href="/admin/orders"><strong>{siteTitle}</strong></a>
       <a href="/api/auth/signout" style="float: right;">Sign Out</a>
     </div>
   </nav>
@@ -390,7 +423,9 @@ export const onRequest = defineMiddleware(
       if (user) {
         console.log(`Middleware: User ${user.id} verified via access token.`);
         locals.userId = user.id;
+        // Add anonymous flag for downstream logic
 
+        locals.isAnonymous = user.is_anonymous === true;
         if (user.app_metadata && user.app_metadata.is_admin === true) {
             console.log(`Middleware: User ${user.id} IS an admin.`);
             isAdmin = true;
@@ -720,6 +755,7 @@ import AdminLayout from "../../../layouts/AdminLayout.astro";
 import { formatDate } from "../../../utils/dateUtils";
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { OrderSchema } from '../../../schemas/order.schema';
+import type { Order } from '../../../schemas/order.schema';
 import { handleSupabaseError } from '../../../utils/supabaseUtils';
 
 // Use a local type for the admin table view
@@ -727,7 +763,7 @@ interface AdminOrderTableRow {
   id: number;
   user_id: string;
   orderer_name: string;
-  status: "pending" | "processing" | "completed" | "cancelled";
+  status: Order['status'];
   created_at: string;
   package_tier?: string | null;
 }
@@ -979,33 +1015,9 @@ if (!orderId || isNaN(Number(orderId))) {
                         <div class="form-group">
                             <label for="status">Status:</label>
                             <select id="status" name="status">
-                                <option
-                                    value="pending"
-                                    selected={order.status === "pending"}
-                                >
-                                    Pending
-                                </option>
-                                <option
-                                    value="processing"
-                                    selected={order.status === "processing"}
-                                >
-                                    Processing
-                                </option>
-                                <option
-                                    value="completed"
-                                    selected={order.status === "completed"}
-                                >
-                                    Completed
-                                </option>
-                                <option
-                                    value="cancelled"
-                                    selected={order.status === "cancelled"}
-                                >
-                                    Cancelled
-                                </option>
-                                <option value="" selected={!order.status}>
-                                    N/A
-                                </option>
+                                {OrderSchema.shape.status.options.map(option => (
+                                    <option value={option} selected={order.status === option}>{option}</option>
+                                ))}
                             </select>
                         </div>
                         <div class="form-group">
@@ -1177,6 +1189,8 @@ import { handleSupabaseError } from "../../../../utils/supabaseUtils";
 import type { Order } from '../../../../schemas/order.schema';
 import { OrderSchema } from '../../../../schemas/order.schema';
 
+// NOTE: This endpoint is currently not used by the admin frontend UI, but is kept for future enhancements (e.g., client-side filtering, live updates, or SPA admin tools).
+
 export const GET: APIRoute = async ({ locals }) => {
     const adminUserId = locals.userId; 
 
@@ -1328,21 +1342,35 @@ export const PATCH: APIRoute = async ({ request, params, locals }) => {
         return jsonErrorResponse(400, "No valid fields provided for update.");
     }
 
+    // --- Auto-advance status if page_count is set for the first time ---
+    if (updateData.page_count && updateData.page_count > 0) {
+        // Fetch current order to check previous page_count and status
+        const { data: currentOrderData, error: fetchCurrentError } = await supabaseAdmin
+            .from("orders")
+            .select("status, page_count")
+            .eq("id", idNum)
+            .single();
+        handleSupabaseError(fetchCurrentError, `fetch current order for status auto-advance`);
+        if (currentOrderData && !currentOrderData.page_count && currentOrderData.status === "Pending Page Count") {
+            if (!updateData.status) {
+                updateData.status = "Pending Package Confirmation";
+            }
+        }
+    }
+
     console.log(`API Route: Updating order ${idNum} using admin service client with data:`, updateData);
 
     try {
-
         const { data: updatedOrderData, error: updateError } = await supabaseAdmin
             .from("orders")
             .update(updateData)
             .eq("id", idNum)
-            .select() 
-            .single(); 
+            .select()
+            .single();
 
         handleSupabaseError(updateError, `update order ${idNum} (admin service)`);
 
         if (!updatedOrderData) {
-
              console.error(`API Logic Error: Order ${idNum} not found after PATCH attempt or update failed silently.`);
              return jsonErrorResponse(404, `Order with ID ${idNum} could not be found or updated.`);
         }
@@ -1361,7 +1389,7 @@ export const PATCH: APIRoute = async ({ request, params, locals }) => {
 
     } catch (error: any) {
         console.error(`API Error (PATCH /api/admin/orders/${orderId} with service client):`, error.message);
-        if (error.code === 'PGRST116' || error.message.includes('update order')) { 
+        if (error.code === 'PGRST116' || error.message.includes('update order')) {
              return jsonErrorResponse(404, `Order with ID ${idNum} not found when attempting update.`);
         }
          if (error.message.startsWith("Permission Denied:")) {
@@ -1593,7 +1621,40 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
       return jsonErrorResponse(500, "Failed to establish session."); 
   }
 
-  setAuthCookies(cookies, data.session);
+  // --- Anonymous to Permanent Account Linking Logic ---
+  // Check if there was an active anonymous session before OAuth
+  const { data: currentSessionData, error: sessionError } = await supabase.auth.getSession();
+  const currentSession = currentSessionData?.session;
+  const isAnonymous = currentSession?.user?.is_anonymous === true;
+
+  let finalSession = data.session;
+
+  if (isAnonymous) {
+    try {
+      // Attempt to link the OAuth identity to the anonymous user
+      const { error: linkError } = await supabase.auth.linkIdentity({ provider: 'google' });
+      if (linkError) {
+        if (linkError.message && linkError.message.toLowerCase().includes('already registered')) {
+          await supabase.auth.signOut();
+          finalSession = data.session;
+        } else {
+          console.error('linkIdentity error:', linkError.message);
+          finalSession = data.session;
+        }
+      } else {
+        // Linking succeeded, fetch the upgraded session
+        const { data: upgradedSessionData } = await supabase.auth.getSession();
+        if (upgradedSessionData?.session) {
+          finalSession = upgradedSessionData.session;
+        }
+      }
+    } catch (err) {
+      console.error('Exception during linkIdentity:', err);
+      finalSession = data.session;
+    }
+  }
+
+  setAuthCookies(cookies, finalSession);
 
   return redirect("/dashboard");
 };
@@ -2198,7 +2259,7 @@ const title = "Order Details";
 const packages = PACKAGES_DETAILS;
 ---
 <Layout title={title}>
-  <main>
+  <main id="order-detail-main-content" data-packages={JSON.stringify(packages)}>
     <h1>{title}</h1>
     <section id="order-detail-section">
       <div id="order-detail-loading">Loading order details...</div>
@@ -2207,8 +2268,10 @@ const packages = PACKAGES_DETAILS;
     </section>
   </main>
   <script type="module">
-    // @ts-ignore
-    const packages = window.PACKAGES_DETAILS || [];
+    // Get the element holding the data
+    const mainContentElement = document.getElementById('order-detail-main-content');
+    // Parse the data attribute
+    const packages = JSON.parse(mainContentElement.dataset.packages || '[]');
     const orderId = window.location.pathname.split('/').pop();
     async function fetchOrder() {
       const loading = document.getElementById('order-detail-loading');
@@ -2307,10 +2370,6 @@ const packages = PACKAGES_DETAILS;
     }
     fetchOrder();
   </script>
-  <script>
-    // Safely expose packages to the client script
-    window.PACKAGES_DETAILS = JSON.parse('{JSON.stringify(packages)}');
-  </script>
 </Layout>
 
 ```
@@ -2378,7 +2437,7 @@ export const SignedFileInfoSchema = z.object({
   signedUrl: z.string().nullable(),
 });
 
-export const AdminOrderDetailResponseSchema = OrderSchema.partial().extend({
+export const AdminOrderDetailResponseSchema = OrderSchema.extend({
   uploaded_files_info: z.array(SignedFileInfoSchema.nullable()).optional(),
   certificate_info: SignedFileInfoSchema.nullable().optional(),
   translated_file_info: SignedFileInfoSchema.nullable().optional(),
@@ -2498,11 +2557,9 @@ export function setupOrderUpdateForm(
         if (status !== null && status !== undefined) {
             if (status === "") {
                 payload.status = null;
-            } else if (["pending", "processing", "completed", "cancelled"].includes(status as string)) {
-                payload.status = status as Order['status'];
             } else {
-                 if (statusElement) displayStatus(statusElement, 'Invalid status value selected.', 'error');
-                 return null;
+                // Accept any status from the schema
+                payload.status = status as Order['status'];
             }
         }
         if (pageCountRaw !== null && pageCountRaw !== '') {
@@ -3100,7 +3157,7 @@ export async function createOrder(
     const operationContext = "create order";
     const insertData: Partial<Order> & { user_id: string; orderer_name: string; status: Order['status']; is_disadvantaged: boolean; is_school: boolean; } = {
       ...input,
-      status: "pending",
+      status: "Pending Page Count",
     };
 
     console.log("Service: Inserting data:", insertData); 
@@ -3168,7 +3225,6 @@ export type FormSubmitOptions = JsonFormSubmitOptions;
 `src/types/window.d.ts`:
 ```
 interface Window {
-  PACKAGES_DETAILS?: any; // Use a more specific type if available
 }
 
 ```
