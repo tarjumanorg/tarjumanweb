@@ -13,3 +13,22 @@ export const PACKAGE_MAP: { [key: string]: string } = {
     "2": "Standard",
     "3": "Premium",
 };
+
+export interface PackageDetail {
+  id: string; // e.g., "1", "2", "3"
+  name: string; // "Basic", "Standard", "Premium"
+  pricePerPage: number; // Price in smallest currency unit (e.g., IDR 50000)
+  turnaroundDays: number; // e.g., 7, 3, 1
+  description?: string; // Optional
+}
+
+export const PACKAGES_DETAILS: PackageDetail[] = [
+  { id: "1", name: "Basic", pricePerPage: 50000, turnaroundDays: 7, description: "Most economical option." },
+  { id: "2", name: "Standard", pricePerPage: 75000, turnaroundDays: 3, description: "Balanced speed and cost." },
+  { id: "3", name: "Premium", pricePerPage: 100000, turnaroundDays: 1, description: "Fastest turnaround." },
+];
+
+export const PACKAGES_DETAILS_MAP: Record<string, PackageDetail> = PACKAGES_DETAILS.reduce((acc, pkg) => {
+  acc[pkg.id] = pkg;
+  return acc;
+}, {} as Record<string, PackageDetail>);

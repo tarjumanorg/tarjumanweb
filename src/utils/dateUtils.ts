@@ -7,3 +7,9 @@ export const formatDate = (dateString: string | null | undefined): string => {
         return dateString;
     }
 }
+
+export function calculateEstimatedDeliveryDate(turnaroundDays: number): Date {
+    const now = new Date();
+    now.setDate(now.getDate() + turnaroundDays);
+    return now;
+}

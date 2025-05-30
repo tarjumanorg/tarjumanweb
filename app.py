@@ -23,6 +23,7 @@ EXCLUDE_DIRS = {
     "node_modules",
     ".git",
     "public",
+    "docs",
 }
 
 EXCLUDE_PATHS = {

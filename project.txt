@@ -1973,6 +1973,349 @@ export const POST: APIRoute = async ({ request, locals, clientAddress }: APICont
 ```
 ---
 
+`src/pages/api/orders/index.ts`:
+```
+import type { APIRoute } from "astro";
+import { supabase } from "../../../lib/supabase";
+import { OrderSchema } from "../../../schemas/order.schema";
+import { jsonResponse, jsonErrorResponse } from '../../../utils/apiResponse';
+
+export const GET: APIRoute = async ({ locals }) => {
+  const userId = locals.userId;
+  if (!userId) {
+    return jsonErrorResponse(401, "Unauthorized: User not logged in.");
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("orders")
+      .select("id, orderer_name, status, created_at, page_count, package_tier, total_price, estimated_delivery_date")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      return jsonErrorResponse(500, error.message);
+    }
+
+    // Validate response data (optional but recommended)
+    const parseResult = OrderSchema.pick({
+      id: true,
+      orderer_name: true,
+      status: true,
+      created_at: true,
+      page_count: true,
+      package_tier: true,
+      total_price: true,
+      estimated_delivery_date: true,
+    }).array().safeParse(data);
+    if (!parseResult.success) {
+      return jsonErrorResponse(500, 'Internal server error: Invalid data format for orders.');
+    }
+
+    return jsonResponse(200, parseResult.data);
+  } catch (e: any) {
+    return jsonErrorResponse(500, e.message || 'Unknown error');
+  }
+};
+
+```
+---
+
+`src/pages/api/orders/[orderId].ts`:
+```
+import type { APIRoute } from "astro";
+import { supabase } from "../../../lib/supabase";
+import { OrderSchema } from "../../../schemas/order.schema";
+import { jsonResponse, jsonErrorResponse } from '../../../utils/apiResponse';
+import { z } from "zod";
+import { PACKAGES_DETAILS_MAP } from '../../../utils/constants';
+
+// GET /api/orders/[orderId]
+export const GET: APIRoute = async ({ params, locals }) => {
+  const userId = locals.userId;
+  const orderId = params.orderId;
+  if (!userId) return jsonErrorResponse(401, "Unauthorized: User not logged in.");
+  const idNumResult = z.coerce.number().int().positive().safeParse(orderId);
+  if (!idNumResult.success) return jsonErrorResponse(400, "Invalid Order ID.");
+  const idNum = idNumResult.data;
+
+  const { data, error } = await supabase
+    .from("orders")
+    .select("*")
+    .eq("id", idNum)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) return jsonErrorResponse(500, error.message);
+  if (!data) return jsonErrorResponse(404, "Order not found.");
+  const parseResult = OrderSchema.safeParse(data);
+  if (!parseResult.success) return jsonErrorResponse(500, 'Internal server error: Invalid order data.');
+  return jsonResponse(200, parseResult.data);
+};
+
+// PATCH /api/orders/[orderId]
+export const PATCH: APIRoute = async ({ request, params, locals }) => {
+  const userId = locals.userId;
+  const orderId = params.orderId;
+  if (!userId) return jsonErrorResponse(401, "Unauthorized: User not logged in.");
+  const idNumResult = z.coerce.number().int().positive().safeParse(orderId);
+  if (!idNumResult.success) return jsonErrorResponse(400, "Invalid Order ID.");
+  const idNum = idNumResult.data;
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonErrorResponse(400, "Invalid JSON body.");
+  }
+  const bodySchema = z.object({ packageIdentifier: z.string() });
+  const bodyResult = bodySchema.safeParse(body);
+  if (!bodyResult.success) return jsonErrorResponse(400, bodyResult.error.flatten());
+  const { packageIdentifier } = bodyResult.data;
+
+  // Fetch current order
+  const { data: order, error } = await supabase
+    .from("orders")
+    .select("*")
+    .eq("id", idNum)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) return jsonErrorResponse(500, error.message);
+  if (!order) return jsonErrorResponse(404, "Order not found.");
+  if (!order.page_count || order.page_count <= 0) return jsonErrorResponse(409, "Page count not yet confirmed by admin.");
+  if (order.status !== "Pending Package Confirmation") return jsonErrorResponse(409, "Order is not awaiting package confirmation.");
+
+  const pkg = PACKAGES_DETAILS_MAP[packageIdentifier];
+  if (!pkg) return jsonErrorResponse(400, "Invalid package selected.");
+  const newTotalPrice = order.page_count * pkg.pricePerPage;
+  const now = new Date();
+  const estimatedDelivery = new Date(now.getTime() + pkg.turnaroundDays * 24 * 60 * 60 * 1000);
+
+  const updatePayload = {
+    package_tier: pkg.name,
+    total_price: newTotalPrice,
+    estimated_delivery_date: estimatedDelivery.toISOString(),
+    status: "Pending Payment"
+  };
+  const { data: updated, error: updateError } = await supabase
+    .from("orders")
+    .update(updatePayload)
+    .eq("id", idNum)
+    .eq("user_id", userId)
+    .select()
+    .maybeSingle();
+  if (updateError) return jsonErrorResponse(500, updateError.message);
+  if (!updated) return jsonErrorResponse(500, "Order update failed.");
+  return jsonResponse(200, updated);
+};
+
+```
+---
+
+`src/pages/dashboard/my-orders.astro`:
+```
+---
+import Layout from "../../layout/Layout.astro";
+const title = "My Orders";
+---
+
+<Layout title={title}>
+  <main>
+    <h1>{title}</h1>
+    <section>
+      <div id="orders-list-loading">Loading your orders...</div>
+      <table id="orders-table" style="display:none;">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Orderer Name</th>
+            <th>Status</th>
+            <th>Created</th>
+            <th>Page Count</th>
+            <th>Package</th>
+            <th>Total Price</th>
+            <th>Estimated Delivery</th>
+            <th>Details</th>
+          </tr>
+        </thead>
+        <tbody id="orders-table-body"></tbody>
+      </table>
+      <div id="orders-list-error" style="color:red;"></div>
+    </section>
+  </main>
+  <script type="module">
+    async function fetchOrders() {
+      const loading = document.getElementById('orders-list-loading');
+      const table = document.getElementById('orders-table');
+      const tbody = document.getElementById('orders-table-body');
+      const errorDiv = document.getElementById('orders-list-error');
+      loading.style.display = '';
+      table.style.display = 'none';
+      errorDiv.textContent = '';
+      try {
+        const res = await fetch('/api/orders');
+        if (!res.ok) throw new Error(await res.text());
+        const orders = await res.json();
+        if (!Array.isArray(orders) || orders.length === 0) {
+          loading.textContent = 'No orders found.';
+          return;
+        }
+        loading.style.display = 'none';
+        table.style.display = '';
+        tbody.innerHTML = '';
+        for (const order of orders) {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${order.id}</td>
+            <td>${order.orderer_name}</td>
+            <td>${order.status}</td>
+            <td>${new Date(order.created_at).toLocaleString()}</td>
+            <td>${order.page_count ?? ''}</td>
+            <td>${order.package_tier ?? ''}</td>
+            <td>${order.total_price ? (order.total_price).toLocaleString('id-ID', { style: 'currency', currency: 'IDR' }) : ''}</td>
+            <td>${order.estimated_delivery_date ? new Date(order.estimated_delivery_date).toLocaleDateString() : ''}</td>
+            <td><a href="/dashboard/my-orders/${order.id}">Details</a></td>
+          `;
+          tbody.appendChild(tr);
+        }
+      } catch (e) {
+        loading.style.display = 'none';
+        errorDiv.textContent = e.message || 'Failed to load orders.';
+      }
+    }
+    fetchOrders();
+  </script>
+</Layout>
+
+```
+---
+
+`src/pages/dashboard/my-orders/[orderId].astro`:
+```
+---
+import Layout from "../../../layout/Layout.astro";
+import { PACKAGES_DETAILS } from '../../../utils/constants';
+const title = "Order Details";
+const packages = PACKAGES_DETAILS;
+---
+<Layout title={title}>
+  <main>
+    <h1>{title}</h1>
+    <section id="order-detail-section">
+      <div id="order-detail-loading">Loading order details...</div>
+      <div id="order-detail-error" style="color:red;"></div>
+      <div id="order-detail-content" style="display:none;"></div>
+    </section>
+  </main>
+  <script type="module">
+    // @ts-ignore
+    const packages = window.PACKAGES_DETAILS || [];
+    const orderId = window.location.pathname.split('/').pop();
+    async function fetchOrder() {
+      const loading = document.getElementById('order-detail-loading');
+      const errorDiv = document.getElementById('order-detail-error');
+      const contentDiv = document.getElementById('order-detail-content');
+      loading.style.display = '';
+      contentDiv.style.display = 'none';
+      errorDiv.textContent = '';
+      try {
+        const res = await fetch(`/api/orders/${orderId}`);
+        if (!res.ok) throw new Error(await res.text());
+        const order = await res.json();
+        loading.style.display = 'none';
+        contentDiv.style.display = '';
+        renderOrder(order);
+      } catch (e) {
+        loading.style.display = 'none';
+        errorDiv.textContent = e.message || 'Failed to load order.';
+      }
+    }
+    function renderOrder(order) {
+      const contentDiv = document.getElementById('order-detail-content');
+      let html = `<p><strong>Order ID:</strong> ${order.id}</p>
+        <p><strong>Orderer Name:</strong> ${order.orderer_name}</p>
+        <p><strong>Status:</strong> ${order.status}</p>
+        <p><strong>Created At:</strong> ${new Date(order.created_at).toLocaleString()}</p>
+        <p><strong>Page Count:</strong> ${order.page_count ?? 'N/A'}</p>`;
+      if (order.status === 'Pending Page Count' || !order.page_count) {
+        html += `<p>Admin is reviewing your documents to confirm the page count. Package selection will be available soon.</p>`;
+      } else if (order.status === 'Pending Package Confirmation' && order.page_count > 0) {
+        html += `<p><strong>Page Count:</strong> ${order.page_count}</p>`;
+        html += `<form id="package-select-form">
+          <fieldset>
+            <legend>Select a Package</legend>`;
+        for (const pkg of packages) {
+          html += `<label style="display:block;margin-bottom:0.5em;">
+            <input type="radio" name="package" value="${pkg.id}" ${order.package_tier === pkg.name ? 'checked' : ''} />
+            <strong>${pkg.name}</strong> - IDR ${(pkg.pricePerPage).toLocaleString('id-ID')} per page, ${pkg.turnaroundDays} day(s)
+            <br/><small>${pkg.description || ''}</small>
+          </label>`;
+        }
+        html += `</fieldset>
+          <div id="package-summary"></div>
+          <button type="submit" id="confirm-package-btn">Confirm Package and Proceed to Payment</button>
+        </form>`;
+      } else {
+        html += `<p><strong>Package:</strong> ${order.package_tier ?? ''}</p>
+          <p><strong>Total Price:</strong> ${order.total_price ? (order.total_price).toLocaleString('id-ID', { style: 'currency', currency: 'IDR' }) : ''}</p>
+          <p><strong>Estimated Delivery:</strong> ${order.estimated_delivery_date ? new Date(order.estimated_delivery_date).toLocaleDateString() : ''}</p>`;
+      }
+      contentDiv.innerHTML = html;
+      if (order.status === 'Pending Package Confirmation' && order.page_count > 0) setupPackageForm(order);
+    }
+    function setupPackageForm(order) {
+      const form = document.getElementById('package-select-form');
+      const summaryDiv = document.getElementById('package-summary');
+      let selectedId = null;
+      form.addEventListener('change', (e) => {
+        if (e.target.name === 'package') {
+          selectedId = e.target.value;
+          updateSummary();
+        }
+      });
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (!selectedId) {
+          summaryDiv.textContent = 'Please select a package.';
+          return;
+        }
+        document.getElementById('confirm-package-btn').disabled = true;
+        summaryDiv.textContent = 'Submitting...';
+        try {
+          const res = await fetch(`/api/orders/${order.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ packageIdentifier: selectedId })
+          });
+          if (!res.ok) throw new Error(await res.text());
+          summaryDiv.textContent = 'Package confirmed! Please proceed to payment.';
+          fetchOrder();
+        } catch (err) {
+          summaryDiv.textContent = err.message || 'Failed to confirm package.';
+        } finally {
+          document.getElementById('confirm-package-btn').disabled = false;
+        }
+      });
+      function updateSummary() {
+        const pkg = packages.find(p => p.id === selectedId);
+        if (!pkg) { summaryDiv.textContent = ''; return; }
+        const total = order.page_count * pkg.pricePerPage;
+        const delivery = new Date(Date.now() + pkg.turnaroundDays * 24 * 60 * 60 * 1000);
+        summaryDiv.innerHTML = `<strong>Selected Package:</strong> ${pkg.name}<br/>
+          <strong>Total Price:</strong> IDR ${total.toLocaleString('id-ID')}<br/>
+          <strong>Estimated Delivery:</strong> ${delivery.toLocaleDateString()}`;
+      }
+    }
+    fetchOrder();
+  </script>
+  <script>
+    // Safely expose packages to the client script
+    window.PACKAGES_DETAILS = JSON.parse('{JSON.stringify(packages)}');
+  </script>
+</Layout>
+
+```
+---
+
 `src/schemas/guestbook.schema.ts`:
 ```
 import { z } from "zod";
@@ -1995,7 +2338,18 @@ export const OrderSchema = z.object({
   id: z.number().int().positive(),
   user_id: z.string(),
   orderer_name: z.string().min(1, "Orderer name is required"),
-  status: z.enum(["pending", "processing", "completed", "cancelled"]),
+  status: z.enum([
+    "pending", // legacy: will be replaced by new statuses below
+    "processing", // legacy
+    "completed", // legacy
+    "cancelled", // legacy
+    "Pending Page Count",
+    "Pending Package Confirmation",
+    "Pending Payment",
+    "In Progress",
+    "Delivered",
+    "Rejected"
+  ]),
   created_at: z.string(),
   phone: z.string().nullable().optional(),
   package_tier: z.string().nullable().optional(),
@@ -2006,6 +2360,7 @@ export const OrderSchema = z.object({
   is_school: z.boolean(),
   certificate_url: z.string().nullable().optional(),
   translated_file_url: z.string().nullable().optional(),
+  estimated_delivery_date: z.string().datetime({ offset: true }).nullable().optional(),
 });
 
 export const CreateOrderInputSchema = z.object({
@@ -2030,9 +2385,22 @@ export const AdminOrderDetailResponseSchema = OrderSchema.partial().extend({
 });
 
 export const UpdateOrderPayloadSchema = z.object({
-  status: z.enum(["pending", "processing", "completed", "cancelled"]).nullable().optional(),
+  status: z.enum([
+    "pending",
+    "processing",
+    "completed",
+    "cancelled",
+    "Pending Page Count",
+    "Pending Package Confirmation",
+    "Pending Payment",
+    "In Progress",
+    "Delivered",
+    "Rejected"
+  ]).nullable().optional(),
   page_count: z.number().int().nonnegative().nullable().optional(),
   total_price: z.number().nonnegative().nullable().optional(),
+  package_tier: z.string().nullable().optional(),
+  estimated_delivery_date: z.string().datetime({ offset: true }).nullable().optional(),
 }).partial();
 
 export type Order = z.infer<typeof OrderSchema>;
@@ -2797,6 +3165,15 @@ export type FormSubmitOptions = JsonFormSubmitOptions;
 ```
 ---
 
+`src/types/window.d.ts`:
+```
+interface Window {
+  PACKAGES_DETAILS?: any; // Use a more specific type if available
+}
+
+```
+---
+
 `src/utils/apiResponse.ts`:
 ```
 import type { APIContext } from 'astro';
@@ -2898,6 +3275,25 @@ export const PACKAGE_MAP: { [key: string]: string } = {
     "2": "Standard",
     "3": "Premium",
 };
+
+export interface PackageDetail {
+  id: string; // e.g., "1", "2", "3"
+  name: string; // "Basic", "Standard", "Premium"
+  pricePerPage: number; // Price in smallest currency unit (e.g., IDR 50000)
+  turnaroundDays: number; // e.g., 7, 3, 1
+  description?: string; // Optional
+}
+
+export const PACKAGES_DETAILS: PackageDetail[] = [
+  { id: "1", name: "Basic", pricePerPage: 50000, turnaroundDays: 7, description: "Most economical option." },
+  { id: "2", name: "Standard", pricePerPage: 75000, turnaroundDays: 3, description: "Balanced speed and cost." },
+  { id: "3", name: "Premium", pricePerPage: 100000, turnaroundDays: 1, description: "Fastest turnaround." },
+];
+
+export const PACKAGES_DETAILS_MAP: Record<string, PackageDetail> = PACKAGES_DETAILS.reduce((acc, pkg) => {
+  acc[pkg.id] = pkg;
+  return acc;
+}, {} as Record<string, PackageDetail>);
 ```
 ---
 
@@ -2911,6 +3307,12 @@ export const formatDate = (dateString: string | null | undefined): string => {
     } catch {
         return dateString;
     }
+}
+
+export function calculateEstimatedDeliveryDate(turnaroundDays: number): Date {
+    const now = new Date();
+    now.setDate(now.getDate() + turnaroundDays);
+    return now;
 }
 ```
 ---

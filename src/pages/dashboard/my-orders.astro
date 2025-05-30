@@ -1,0 +1,72 @@
+---
+import Layout from "../../layout/Layout.astro";
+const title = "My Orders";
+---
+
+<Layout title={title}>
+  <main>
+    <h1>{title}</h1>
+    <section>
+      <div id="orders-list-loading">Loading your orders...</div>
+      <table id="orders-table" style="display:none;">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Orderer Name</th>
+            <th>Status</th>
+            <th>Created</th>
+            <th>Page Count</th>
+            <th>Package</th>
+            <th>Total Price</th>
+            <th>Estimated Delivery</th>
+            <th>Details</th>
+          </tr>
+        </thead>
+        <tbody id="orders-table-body"></tbody>
+      </table>
+      <div id="orders-list-error" style="color:red;"></div>
+    </section>
+  </main>
+  <script type="module">
+    async function fetchOrders() {
+      const loading = document.getElementById('orders-list-loading');
+      const table = document.getElementById('orders-table');
+      const tbody = document.getElementById('orders-table-body');
+      const errorDiv = document.getElementById('orders-list-error');
+      loading.style.display = '';
+      table.style.display = 'none';
+      errorDiv.textContent = '';
+      try {
+        const res = await fetch('/api/orders');
+        if (!res.ok) throw new Error(await res.text());
+        const orders = await res.json();
+        if (!Array.isArray(orders) || orders.length === 0) {
+          loading.textContent = 'No orders found.';
+          return;
+        }
+        loading.style.display = 'none';
+        table.style.display = '';
+        tbody.innerHTML = '';
+        for (const order of orders) {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${order.id}</td>
+            <td>${order.orderer_name}</td>
+            <td>${order.status}</td>
+            <td>${new Date(order.created_at).toLocaleString()}</td>
+            <td>${order.page_count ?? ''}</td>
+            <td>${order.package_tier ?? ''}</td>
+            <td>${order.total_price ? (order.total_price).toLocaleString('id-ID', { style: 'currency', currency: 'IDR' }) : ''}</td>
+            <td>${order.estimated_delivery_date ? new Date(order.estimated_delivery_date).toLocaleDateString() : ''}</td>
+            <td><a href="/dashboard/my-orders/${order.id}">Details</a></td>
+          `;
+          tbody.appendChild(tr);
+        }
+      } catch (e) {
+        loading.style.display = 'none';
+        errorDiv.textContent = e.message || 'Failed to load orders.';
+      }
+    }
+    fetchOrders();
+  </script>
+</Layout>

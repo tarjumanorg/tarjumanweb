@@ -1,0 +1,121 @@
+---
+import Layout from "../../../layout/Layout.astro";
+import { PACKAGES_DETAILS } from '../../../utils/constants';
+const title = "Order Details";
+const packages = PACKAGES_DETAILS;
+---
+<Layout title={title}>
+  <main>
+    <h1>{title}</h1>
+    <section id="order-detail-section">
+      <div id="order-detail-loading">Loading order details...</div>
+      <div id="order-detail-error" style="color:red;"></div>
+      <div id="order-detail-content" style="display:none;"></div>
+    </section>
+  </main>
+  <script type="module">
+    // @ts-ignore
+    const packages = window.PACKAGES_DETAILS || [];
+    const orderId = window.location.pathname.split('/').pop();
+    async function fetchOrder() {
+      const loading = document.getElementById('order-detail-loading');
+      const errorDiv = document.getElementById('order-detail-error');
+      const contentDiv = document.getElementById('order-detail-content');
+      loading.style.display = '';
+      contentDiv.style.display = 'none';
+      errorDiv.textContent = '';
+      try {
+        const res = await fetch(`/api/orders/${orderId}`);
+        if (!res.ok) throw new Error(await res.text());
+        const order = await res.json();
+        loading.style.display = 'none';
+        contentDiv.style.display = '';
+        renderOrder(order);
+      } catch (e) {
+        loading.style.display = 'none';
+        errorDiv.textContent = e.message || 'Failed to load order.';
+      }
+    }
+    function renderOrder(order) {
+      const contentDiv = document.getElementById('order-detail-content');
+      let html = `<p><strong>Order ID:</strong> ${order.id}</p>
+        <p><strong>Orderer Name:</strong> ${order.orderer_name}</p>
+        <p><strong>Status:</strong> ${order.status}</p>
+        <p><strong>Created At:</strong> ${new Date(order.created_at).toLocaleString()}</p>
+        <p><strong>Page Count:</strong> ${order.page_count ?? 'N/A'}</p>`;
+      if (order.status === 'Pending Page Count' || !order.page_count) {
+        html += `<p>Admin is reviewing your documents to confirm the page count. Package selection will be available soon.</p>`;
+      } else if (order.status === 'Pending Package Confirmation' && order.page_count > 0) {
+        html += `<p><strong>Page Count:</strong> ${order.page_count}</p>`;
+        html += `<form id="package-select-form">
+          <fieldset>
+            <legend>Select a Package</legend>`;
+        for (const pkg of packages) {
+          html += `<label style="display:block;margin-bottom:0.5em;">
+            <input type="radio" name="package" value="${pkg.id}" ${order.package_tier === pkg.name ? 'checked' : ''} />
+            <strong>${pkg.name}</strong> - IDR ${(pkg.pricePerPage).toLocaleString('id-ID')} per page, ${pkg.turnaroundDays} day(s)
+            <br/><small>${pkg.description || ''}</small>
+          </label>`;
+        }
+        html += `</fieldset>
+          <div id="package-summary"></div>
+          <button type="submit" id="confirm-package-btn">Confirm Package and Proceed to Payment</button>
+        </form>`;
+      } else {
+        html += `<p><strong>Package:</strong> ${order.package_tier ?? ''}</p>
+          <p><strong>Total Price:</strong> ${order.total_price ? (order.total_price).toLocaleString('id-ID', { style: 'currency', currency: 'IDR' }) : ''}</p>
+          <p><strong>Estimated Delivery:</strong> ${order.estimated_delivery_date ? new Date(order.estimated_delivery_date).toLocaleDateString() : ''}</p>`;
+      }
+      contentDiv.innerHTML = html;
+      if (order.status === 'Pending Package Confirmation' && order.page_count > 0) setupPackageForm(order);
+    }
+    function setupPackageForm(order) {
+      const form = document.getElementById('package-select-form');
+      const summaryDiv = document.getElementById('package-summary');
+      let selectedId = null;
+      form.addEventListener('change', (e) => {
+        if (e.target.name === 'package') {
+          selectedId = e.target.value;
+          updateSummary();
+        }
+      });
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (!selectedId) {
+          summaryDiv.textContent = 'Please select a package.';
+          return;
+        }
+        document.getElementById('confirm-package-btn').disabled = true;
+        summaryDiv.textContent = 'Submitting...';
+        try {
+          const res = await fetch(`/api/orders/${order.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ packageIdentifier: selectedId })
+          });
+          if (!res.ok) throw new Error(await res.text());
+          summaryDiv.textContent = 'Package confirmed! Please proceed to payment.';
+          fetchOrder();
+        } catch (err) {
+          summaryDiv.textContent = err.message || 'Failed to confirm package.';
+        } finally {
+          document.getElementById('confirm-package-btn').disabled = false;
+        }
+      });
+      function updateSummary() {
+        const pkg = packages.find(p => p.id === selectedId);
+        if (!pkg) { summaryDiv.textContent = ''; return; }
+        const total = order.page_count * pkg.pricePerPage;
+        const delivery = new Date(Date.now() + pkg.turnaroundDays * 24 * 60 * 60 * 1000);
+        summaryDiv.innerHTML = `<strong>Selected Package:</strong> ${pkg.name}<br/>
+          <strong>Total Price:</strong> IDR ${total.toLocaleString('id-ID')}<br/>
+          <strong>Estimated Delivery:</strong> ${delivery.toLocaleDateString()}`;
+      }
+    }
+    fetchOrder();
+  </script>
+  <script>
+    // Safely expose packages to the client script
+    window.PACKAGES_DETAILS = JSON.parse('{JSON.stringify(packages)}');
+  </script>
+</Layout>

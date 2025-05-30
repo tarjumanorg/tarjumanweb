@@ -4,7 +4,18 @@ export const OrderSchema = z.object({
   id: z.number().int().positive(),
   user_id: z.string(),
   orderer_name: z.string().min(1, "Orderer name is required"),
-  status: z.enum(["pending", "processing", "completed", "cancelled"]),
+  status: z.enum([
+    "pending", // legacy: will be replaced by new statuses below
+    "processing", // legacy
+    "completed", // legacy
+    "cancelled", // legacy
+    "Pending Page Count",
+    "Pending Package Confirmation",
+    "Pending Payment",
+    "In Progress",
+    "Delivered",
+    "Rejected"
+  ]),
   created_at: z.string(),
   phone: z.string().nullable().optional(),
   package_tier: z.string().nullable().optional(),
@@ -15,6 +26,7 @@ export const OrderSchema = z.object({
   is_school: z.boolean(),
   certificate_url: z.string().nullable().optional(),
   translated_file_url: z.string().nullable().optional(),
+  estimated_delivery_date: z.string().datetime({ offset: true }).nullable().optional(),
 });
 
 export const CreateOrderInputSchema = z.object({
@@ -39,9 +51,22 @@ export const AdminOrderDetailResponseSchema = OrderSchema.partial().extend({
 });
 
 export const UpdateOrderPayloadSchema = z.object({
-  status: z.enum(["pending", "processing", "completed", "cancelled"]).nullable().optional(),
+  status: z.enum([
+    "pending",
+    "processing",
+    "completed",
+    "cancelled",
+    "Pending Page Count",
+    "Pending Package Confirmation",
+    "Pending Payment",
+    "In Progress",
+    "Delivered",
+    "Rejected"
+  ]).nullable().optional(),
   page_count: z.number().int().nonnegative().nullable().optional(),
   total_price: z.number().nonnegative().nullable().optional(),
+  package_tier: z.string().nullable().optional(),
+  estimated_delivery_date: z.string().datetime({ offset: true }).nullable().optional(),
 }).partial();
 
 export type Order = z.infer<typeof OrderSchema>;
