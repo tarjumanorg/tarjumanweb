@@ -9,7 +9,8 @@ import type { FormSubmitOptions } from '../types/types';
 type UpdatePayload = {
     status?: Order['status'] | null;
     page_count?: number | null;
-    total_price?: number | null;
+    package_tier?: string | null;
+    estimated_delivery_date?: string | null;
 };
 
 export async function handleTranslationUploadSubmit(
@@ -77,7 +78,6 @@ export function setupOrderUpdateForm(
         const payload: UpdatePayload = {};
         const status = formData.get('status');
         const pageCountRaw = formData.get('page_count');
-        const totalPriceRaw = formData.get('total_price');
 
         if (status !== null && status !== undefined) {
             if (status === "") {
@@ -96,16 +96,6 @@ export function setupOrderUpdateForm(
             }
         } else if (pageCountRaw === '') {
             payload.page_count = null;
-        }
-        if (totalPriceRaw !== null && totalPriceRaw !== '') {
-            const totalPriceNum = parseInt(totalPriceRaw as string, 10);
-            if (!isNaN(totalPriceNum) && totalPriceNum >= 0) payload.total_price = totalPriceNum;
-            else {
-                if (statusElement) displayStatus(statusElement, 'Invalid total price (must be a non-negative number).', 'error');
-                return null;
-            }
-        } else if (totalPriceRaw === '') {
-            payload.total_price = null;
         }
 
         if (Object.keys(payload).length === 0) {
@@ -130,7 +120,6 @@ export function setupOrderUpdateForm(
         }
         if (result.status !== undefined) (document.getElementById('status') as HTMLSelectElement).value = result.status ?? '';
         if (result.page_count !== undefined) (document.getElementById('page_count') as HTMLInputElement).value = result.page_count?.toString() ?? '';
-        if (result.total_price !== undefined) (document.getElementById('total_price') as HTMLInputElement).value = result.total_price?.toString() ?? '';
         updateTranslatedFileDisplay(result.translated_file_info);
     }
 

@@ -190,18 +190,6 @@ if (!orderId || isNaN(Number(orderId))) {
                                 step="1"
                             />
                         </div>
-                        <div class="form-group">
-                            <label for="total_price">
-                                Total Price (smallest unit, e.g., cents):
-                            </label>
-                            <input
-                                type="number"
-                                id="total_price"
-                                name="total_price"
-                                value={order.total_price ?? ""}
-                                min="0"
-                            />
-                        </div>
                         <button type="submit">Update Order</button>
                         <div data-update-status class="status-message" />
                     </form>

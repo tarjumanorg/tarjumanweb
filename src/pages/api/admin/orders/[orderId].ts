@@ -92,25 +92,34 @@ export const PATCH: APIRoute = async ({ request, params, locals }) => {
 
     const updateData: import('../../../../schemas/order.schema').UpdateOrderPayload = { ...payload };
     const hasValidUpdate = Object.keys(updateData).length > 0;
-
     if (!hasValidUpdate) {
         return jsonErrorResponse(400, "No valid fields provided for update.");
     }
 
+    let autoAdvancedStatusOverride: Order['status'] | null = null;
     // --- Auto-advance status if page_count is set for the first time ---
     if (updateData.page_count && updateData.page_count > 0) {
-        // Fetch current order to check previous page_count and status
         const { data: currentOrderData, error: fetchCurrentError } = await supabaseAdmin
             .from("orders")
             .select("status, page_count")
             .eq("id", idNum)
             .single();
         handleSupabaseError(fetchCurrentError, `fetch current order for status auto-advance`);
-        if (currentOrderData && !currentOrderData.page_count && currentOrderData.status === "Pending Page Count") {
-            if (!updateData.status) {
-                updateData.status = "Pending Package Confirmation";
-            }
+        if (currentOrderData &&
+            (currentOrderData.page_count === null || currentOrderData.page_count === 0) &&
+            currentOrderData.status === "Pending Page Count"
+        ) {
+            autoAdvancedStatusOverride = "Pending Package Confirmation";
         }
+    }
+    // If auto-advancing, override any status sent from the form for this specific transition
+    if (autoAdvancedStatusOverride) {
+        updateData.status = autoAdvancedStatusOverride;
+        console.log(`API Route: Auto-advancing status to "${updateData.status}" for order ${idNum} due to page count update.`);
+    } else if (payload.status === null) {
+        updateData.status = null;
+    } else if (payload.status) {
+        updateData.status = payload.status;
     }
 
     console.log(`API Route: Updating order ${idNum} using admin service client with data:`, updateData);

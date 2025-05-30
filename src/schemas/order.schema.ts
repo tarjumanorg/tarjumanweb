@@ -64,7 +64,6 @@ export const UpdateOrderPayloadSchema = z.object({
     "Rejected"
   ]).nullable().optional(),
   page_count: z.number().int().nonnegative().nullable().optional(),
-  total_price: z.number().nonnegative().nullable().optional(),
   package_tier: z.string().nullable().optional(),
   estimated_delivery_date: z.string().datetime({ offset: true }).nullable().optional(),
 }).partial();
