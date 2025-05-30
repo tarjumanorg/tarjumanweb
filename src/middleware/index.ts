@@ -4,9 +4,9 @@ import { setAuthCookies, deleteAuthCookies } from '../utils/auth';
 import { ACCESS_TOKEN, REFRESH_TOKEN } from '../utils/constants';
 import { jsonErrorResponse } from "../utils/apiResponse"; 
 
-const protectedPaths = ["/dashboard"];
+const protectedPaths = ["/dashboard", "/dashboard/my-orders"];
 const redirectPaths = ["/signin"]; 
-const protectedAPIPaths = ["/api/guestbook", "/api/orders/create"];
+const protectedAPIPaths = ["/api/guestbook", "/api/orders/create", "/api/orders"];
 
 const adminPaths = ["/admin", "/admin/orders"]; 
 const adminAPIPaths = ["/api/admin/orders"]; 

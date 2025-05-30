@@ -50,6 +50,11 @@ export const AdminOrderDetailResponseSchema = OrderSchema.extend({
   translated_file_info: SignedFileInfoSchema.nullable().optional(),
 });
 
+export const UserOrderDetailSchema = OrderSchema.extend({
+  uploaded_files_info: z.array(z.object({ url: z.string() })),
+  certificate_info: z.object({ url: z.string() }).nullable()
+});
+
 export const UpdateOrderPayloadSchema = z.object({
   status: z.enum([
     "pending",

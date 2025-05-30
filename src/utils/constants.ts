@@ -8,11 +8,6 @@ export const TURNSTILE_VERIFY = 'https://challenges.cloudflare.com/turnstile/v0/
 export const STORAGE_BUCKET = 'documents'; 
 export const SIGNED_URL_EXPIRES_IN = 3600; 
 
-export const PACKAGE_MAP: { [key: string]: string } = {
-    "1": "Basic",
-    "2": "Standard",
-    "3": "Premium",
-};
 
 export interface PackageDetail {
   id: string; // e.g., "1", "2", "3"
@@ -27,6 +22,11 @@ export const PACKAGES_DETAILS: PackageDetail[] = [
   { id: "2", name: "Standard", pricePerPage: 75000, turnaroundDays: 3, description: "Balanced speed and cost." },
   { id: "3", name: "Premium", pricePerPage: 100000, turnaroundDays: 1, description: "Fastest turnaround." },
 ];
+
+export const PACKAGE_MAP: { [key: string]: string } = PACKAGES_DETAILS.reduce((acc, pkg) => {
+  acc[pkg.id] = pkg.name;
+  return acc;
+}, {} as { [key: string]: string });
 
 export const PACKAGES_DETAILS_MAP: Record<string, PackageDetail> = PACKAGES_DETAILS.reduce((acc, pkg) => {
   acc[pkg.id] = pkg;

@@ -32,12 +32,20 @@ const canonicalURL = new URL(Astro.url).href;
         <a href="/">Astro</a>
         <div>
           <ul>
-            <li>
-              <a href="/dashboard">Dashboard</a>
-            </li>
-            <li>
-              <a href="/signin">Sign in</a>
-            </li>
+            {Astro.locals.userId ? (
+              <>
+                <li>
+                  <a href="/dashboard">Dashboard</a>
+                </li>
+                <li>
+                  <a href="/dashboard/my-orders">My Orders</a>
+                </li>
+              </>
+            ) : (
+              <li>
+                <a href="/signin">Sign in</a>
+              </li>
+            )}
           </ul>
         </div>
       </div>

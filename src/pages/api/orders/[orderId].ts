@@ -1,9 +1,10 @@
 import type { APIRoute } from "astro";
 import { supabase } from "../../../lib/supabase";
-import { OrderSchema } from "../../../schemas/order.schema";
+import { OrderSchema, UserOrderDetailSchema } from "../../../schemas/order.schema";
 import { jsonResponse, jsonErrorResponse } from '../../../utils/apiResponse';
 import { z } from "zod";
 import { PACKAGES_DETAILS_MAP } from '../../../utils/constants';
+import { enrichUserOrderWithSignedUrls } from '../../../utils/supabaseUtils';
 
 // GET /api/orders/[orderId]
 export const GET: APIRoute = async ({ params, locals }) => {
@@ -22,9 +23,19 @@ export const GET: APIRoute = async ({ params, locals }) => {
     .maybeSingle();
   if (error) return jsonErrorResponse(500, error.message);
   if (!data) return jsonErrorResponse(404, "Order not found.");
+  
+  // Parse and validate base order data
   const parseResult = OrderSchema.safeParse(data);
   if (!parseResult.success) return jsonErrorResponse(500, 'Internal server error: Invalid order data.');
-  return jsonResponse(200, parseResult.data);
+  
+  // Enrich order with signed URLs
+  const enrichedOrder = await enrichUserOrderWithSignedUrls(parseResult.data);
+  
+  // Validate enriched order structure
+  const enrichedResult = UserOrderDetailSchema.safeParse(enrichedOrder);
+  if (!enrichedResult.success) return jsonErrorResponse(500, 'Internal server error: Invalid enriched order data.');
+  
+  return jsonResponse(200, enrichedResult.data);
 };
 
 // PATCH /api/orders/[orderId]
@@ -80,5 +91,13 @@ export const PATCH: APIRoute = async ({ request, params, locals }) => {
     .maybeSingle();
   if (updateError) return jsonErrorResponse(500, updateError.message);
   if (!updated) return jsonErrorResponse(500, "Order update failed.");
-  return jsonResponse(200, updated);
+  
+  // Validate the updated order data
+  const parseResult = OrderSchema.safeParse(updated);
+  if (!parseResult.success) {
+      console.error('PATCH response validation failed:', parseResult.error.flatten());
+      return jsonErrorResponse(500, 'Internal server error: Invalid data format');
+  }
+  
+  return jsonResponse(200, parseResult.data);
 };
