@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" xml:space="preserve" fill-rule="evenodd" clip-rule="evenodd"
+  image-rendering="optimizeQuality" shape-rendering="geometricPrecision" text-rendering="geometricPrecision"
+  viewBox="0 0 9034 2162">
+
+  <rect width="2162.2" height="2162.2" fill="var(--md-sys-color-on-secondary-container)" rx="180.9" ry="180.9" />
+  <path xmlns="http://www.w3.org/2000/svg" d="M0 1568v228c33 54 173 476 556 262 180-100 329-337 460-479 199-216 473-599 819-585 159 7 232 101 327 166V845c-190-94-301-198-633 2-253 153-553 539-688 665-95 90-378 524-638 399-306-147 14-643 44-823-150 77-160 323-247 480zM1293 459l-256-138-111 240 12 10 226 124 102-167 263 140c41-73 91-147 109-236-77-58-174-114-252-143l-93 170z" style="fill: white;"/>
+  <text x="2755" y="1479" fill="var(--md-sys-color-on-secondary-container)" font-family="Cinzel" font-size="1096.4" font-weight="700">TARJUMAN</text>
+</svg>

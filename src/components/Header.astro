@@ -3,14 +3,13 @@
 const logoUrl = "src/images/logo.png";
 const siteName = "Tarjuman";
 import Menu from "../icons/menu.svg";
-import { Image } from "astro:assets";
-import logo from "../images/logo.png";
+import Logo from "../images/logo.svg";
 ---
 
 <header class="row">
   <nav class="container">
-    <a href="/" class="logo-link">
-      <Image src={logo} alt="logo" height="24" />
+    <a href="/" class="logo-link row">
+      <Logo height={32} />
     </a>
     <Menu
       class="menu-toggle"
@@ -43,6 +42,9 @@ import logo from "../images/logo.png";
     font-size: 1.5rem;
     color: var(--md-sys-color-on-surface-variant);
     text-decoration: none;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
   }
   .logo-image {
     max-height: 40px;
