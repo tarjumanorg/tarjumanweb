@@ -10,13 +10,13 @@ const packageMapJson = JSON.stringify(PACKAGE_MAP);
 ---
 
 <Layout title={title}>
-  <head>
-    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" defer></script>
-    <style>
-      .hidden { display: none; }
-      button:disabled { background-color: #ccc; cursor: not-allowed; }
- </style>
-  </head>
+  {/* No <head> tag here anymore */}
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" defer></script>
+  <style>
+    .hidden { display: none; }
+    button:disabled { background-color: #ccc; cursor: not-allowed; }
+  </style>
+
   <main>
     <section>
       <h1>{title}</h1>

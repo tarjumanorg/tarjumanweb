@@ -1,0 +1,51 @@
+---
+// src/components/Footer.astro
+const currentYear = new Date().getFullYear();
+---
+
+<footer>
+  <div class="container">
+    <p>&copy; {currentYear} Tarjuman. All Rights Reserved.</p>
+    <ul>
+      <li><a href="/terms-of-service">Terms of Service</a></li>
+      <li><a href="/privacy-policy">Privacy Policy</a></li>
+    </ul>
+  </div>
+</footer>
+
+<style>
+  footer {
+    background-color: var(--md-sys-color-tertiary);
+    color: var(--md-sys-color-on-tertiary);
+    padding: 2rem 0;
+    margin-top: auto;
+    font-size: 0.9rem;
+  }
+  footer .container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  footer p {
+    margin: 0.5rem 0;
+  }
+  footer ul {
+    list-style: none;
+    padding: 0;
+    margin: 0.5rem 0;
+    display: flex;
+  }
+  footer ul li {
+    margin-left: 1rem;
+  }
+  footer ul li:first-child {
+    margin-left: 0;
+  }
+  footer a {
+    color: #f8f9fa;
+  }
+  footer a:hover {
+    color: var(--md-sys-color-secondary);
+  }
+</style>

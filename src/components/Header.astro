@@ -1,0 +1,121 @@
+---
+// src/components/Header.astro
+const logoUrl = "src/images/logo.png";
+const siteName = "Tarjuman";
+import Menu from "../icons/menu.svg";
+import { Image } from "astro:assets";
+import logo from "../images/logo.png";
+---
+
+<header class="row">
+  <nav class="container">
+    <a href="/" class="logo-link">
+      <Image src={logo} alt="logo" height="24" />
+    </a>
+    <Menu
+      class="menu-toggle"
+      width={32}
+      height={32}
+      fill="var(--md-sys-color-on-surface)"
+    />
+    <ul class="nav-links">
+      <li><a href="/">Home</a></li>
+      <li><a href="/about">About Us</a></li>
+      <li><a href="/services">Services</a></li>
+      <li><a href="/order">Order</a></li>
+      <li><a href="/dashboard/my-orders">My Orders</a></li>
+      <li><a href="/contact">Contact</a></li>
+    </ul>
+  </nav>
+</header>
+
+<style>
+  header {
+    background-color: var(--md-sys-color-surface-variant);
+    padding: 1rem;
+    border-bottom: 1px solid #e9ecef;
+  }
+  nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .logo-link {
+    font-weight: bold;
+    font-size: 1.5rem;
+    color: var(--md-sys-color-on-surface-variant);
+    text-decoration: none;
+  }
+  .logo-image {
+    max-height: 40px;
+    vertical-align: middle;
+  }
+  .menu-toggle {
+    z-index: 2;
+  }
+  .nav-links {
+    display: none;
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .nav-links.active {
+    display: flex;
+    flex-direction: column;
+    width: 50%;
+    height: 100vh;
+    position: fixed;
+    right: 0;
+    top: 0;
+    padding: 3em 2em;
+    font-size: 1.5em;
+    background-color: var(--md-sys-color-secondary-container);
+    align-items: flex-end;
+    justify-content: flex-start;
+    z-index: 1;
+  }
+
+  nav ul li {
+    margin-left: 1.5rem;
+  }
+  nav ul li a {
+    text-decoration: none;
+    color: var(--md-sys-color-on-surface);
+    font-weight: 500;
+  }
+  nav ul li a:hover,
+  nav ul li a.active {
+    color: var(--md-sys-color-secondary);
+  }
+
+  @media only screen and (min-width: 600px) {
+    .menu-toggle {
+      display: none;
+      z-index: 2;
+    }
+
+    .nav-links {
+      display: flex;
+    }
+  }
+</style>
+
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    const menuToggle = document.querySelector(".menu-toggle");
+    const navLinks = document.querySelector(".nav-links");
+
+    if (menuToggle && navLinks) {
+      // Ensure elements exist
+      menuToggle.addEventListener("click", () => {
+        navLinks.classList.toggle("active");
+        menuToggle.classList.toggle("active"); // For hamburger icon animation
+
+        // Update ARIA attribute for accessibility
+        const isExpanded = navLinks.classList.contains("active");
+        menuToggle.setAttribute("aria-expanded", String(isExpanded));
+      });
+    }
+  });
+</script>

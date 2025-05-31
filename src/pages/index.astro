@@ -1,10 +1,101 @@
 ---
 import Layout from "../layout/Layout.astro";
-const title = "Supabase and Astro Demo";
+const title = "Tarjuman: Jasa Terjemahan Tersumpah Profesional";
 ---
 
 <Layout title={title}>
-  <main>
-    <h1>{title}</h1>
+  <main class="container">
+    <header class="hero">
+      <h1>{title}</h1>
+      <p class="subtitle">
+        Jasa terjemahan tersumpah yang akurat dan tepercaya untuk dokumen resmi Anda antara <strong>Bahasa Indonesia dan Bahasa Arab</strong>. Kami menangani KTP, ijazah, akta hukum, dan berbagai dokumen lainnya, menjamin kerahasiaan dan ketepatan melalui penerjemah tersumpah bersertifikat.
+      </p>
+      <a href="/order" class="cta-button">Pesan Terjemahan Anda Sekarang</a>
+    </header>
+
+    <section class="features">
+      <h2>Mengapa Memilih Tarjuman?</h2>
+      <div class="feature-grid">
+        <div class="feature-item">
+          <h3>Penerjemah Bersertifikat</h3>
+          <p>Dokumen Anda ditangani oleh penerjemah tersumpah yang diakui secara resmi, memastikan akurasi maksimal dan keabsahan hukum.</p>
+        </div>
+        <div class="feature-item">
+          <h3>Spesialis Bahasa Indonesia & Arab</h3>
+          <p>Kami merupakan spesialis dalam pasangan bahasa Indonesia dan Arab, memastikan terjemahan yang bernuansa dan relevan secara budaya.</p>
+        </div>
+        <div class="feature-item">
+          <h3>Aman & Rahasia</h3>
+          <p>Kami mengutamakan keamanan dan kerahasiaan dokumen sensitif Anda sepanjang proses terjemahan.</p>
+        </div>
+        <div class="feature-item">
+          <h3>Proses Online Mudah</h3>
+          <p>Unggah dokumen Anda dengan mudah dan terima terjemahan tersumpah Anda secara praktis, semua dilakukan secara online.</p>
+        </div>
+      </div>
+    </section>
   </main>
 </Layout>
+
+<style>
+  .container {
+    max-width: 960px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+    text-align: center;
+  }
+  .hero {
+    padding: 2rem 0;
+    margin-bottom: 2rem;
+  }
+  .hero h1 {
+    font-size: 2.5rem;
+    margin-bottom: 0.5rem;
+    color: var(--md-sys-color-primary); /* Use your brand color */
+  }
+  .subtitle {
+    font-size: 1.2rem;
+    color: var(--md-sys-color-on-surface-variant);
+    margin-bottom: 1.5rem;
+    max-width: 700px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .cta-button {
+    display: inline-block;
+    padding: 0.8rem 1.5rem;
+    background-color: var(--md-sys-color-primary); /* Use your brand color */
+    color: var(--md-sys-color-on-primary);
+    text-decoration: none;
+    border-radius: 5px;
+    font-size: 1.1rem;
+    transition: background-color 0.3s ease;
+  }
+  .cta-button:hover {
+    background-color: var(--md-sys-color-surface-tint); /* Darker shade */
+  }
+  .features {
+    padding: 2rem 0;
+  }
+  .features h2 {
+    font-size: 2rem;
+    margin-bottom: 1.5rem;
+  }
+  .feature-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.5rem;
+    text-align: left;
+  }
+  .feature-item {
+    background-color: #f9f9f9;
+    padding: 1.5rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  }
+  .feature-item h3 {
+    font-size: 1.3rem;
+    margin-bottom: 0.5rem;
+    color: var(--md-sys-color-primary, #333);
+  }
+</style>

@@ -1,0 +1,44 @@
+---
+// src/layouts/LegalPageLayout.astro
+import BaseLayout from '../layout/Layout.astro'; // Your main layout
+const { frontmatter } = Astro.props; // Markdown frontmatter will be passed here
+---
+
+<BaseLayout title={frontmatter.title}>
+  <main class="legal-container">
+    <h1>{frontmatter.title}</h1>
+    <article class="content-wrapper">
+      <slot /> <!-- Markdown content will be rendered here -->
+    </article>
+  </main>
+</BaseLayout>
+
+<style>
+  .legal-container {
+    max-width: 800px;
+    margin: 2rem auto;
+    padding: 1rem; /* Changed from 0 1rem to give top/bottom padding as well */
+    font-size: 0.9rem;
+  }
+
+  .legal-container h1 {
+    /* BaseLayout already styles h1, but you can add/override here if needed */
+    /* For example, if you wanted specific margin for legal page titles: */
+    /* margin-bottom: 1.5rem; */
+  }
+
+  .content-wrapper :global(h2) {
+    /* Styles for <h2> elements coming from the Markdown content */
+    margin-top: 1.5em;
+    /* BaseLayout already colors h2, add other specific styles if needed */
+  }
+
+  /* 
+    BaseLayout's global body style already sets line-height: 1.6;
+    If you needed to override it specifically for p and li in legal content:
+    .content-wrapper :global(p),
+    .content-wrapper :global(li) {
+      line-height: 1.6;
+    }
+  */
+</style>
