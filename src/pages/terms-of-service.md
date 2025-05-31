@@ -9,7 +9,7 @@ title: Terms of Service
 
 Selamat datang di Tarjuman!
 
-Ketentuan Layanan ("Ketentuan") ini mengatur penggunaan Anda atas situs web Tarjuman (https://tarjuman.netlify.app) ("Situs") dan semua layanan terjemahan tersumpah yang disediakan oleh Tarjuman ("Layanan"). Layanan ini dioperasikan oleh Muhammad Siddiq ("Kami", "Kita", atau "Penyedia Layanan").
+Ketentuan Layanan ("Ketentuan") ini mengatur penggunaan Anda atas situs web Tarjuman (https://tarjuman.org) ("Situs") dan semua layanan terjemahan tersumpah yang disediakan oleh Tarjuman ("Layanan"). Layanan ini dioperasikan oleh Muhammad Siddiq ("Kami", "Kita", atau "Penyedia Layanan").
 
 Dengan mengakses atau menggunakan Layanan Kami, Anda ("Pengguna", "Anda") setuju untuk terikat oleh Ketentuan ini. Jika Anda tidak menyetujui sebagian atau seluruh Ketentuan ini, Anda tidak diizinkan menggunakan Layanan Kami.
 
@@ -72,7 +72,7 @@ Kami berkomitmen untuk menyediakan Dokumen Hasil Terjemahan dengan kualitas ting
 **10. Hak Kekayaan Intelektual (HKI)**
 
 *   **Dokumen Pengguna:** Hak kekayaan intelektual atas Dokumen Asli tetap menjadi milik Pengguna. Hak kekayaan intelektual atas Dokumen Hasil Terjemahan akan menjadi milik Pengguna setelah pembayaran penuh atas Layanan diterima oleh Kami.
-*   **Konten Situs Tarjuman:** Semua konten yang terdapat di Situs, termasuk namun tidak terbatas pada logo, merek dagang, teks, grafik, desain, perangkat lunak, dan kode sumber, adalah milik Muhammad Siddiq atau pemberi lisensinya dan dilindungi oleh hukum hak cipta dan HKI lainnya yang berlaku di Indonesia. Pengguna tidak diizinkan untuk menyalin, mereproduksi, mendistribusikan, atau membuat karya turunan dari konten Situs tanpa izin tertulis sebelumnya dari Kami.
+*   **Konten Situs Tarjuman:** Semua konten yang terdapat di Situs, termasuk namun tidak terbatas pada logo, merek dagang, teks, grafik, desain, perangkat lunak, dan kode sumber, adalah milik Penyedia Layanan atau pemberi lisensinya dan dilindungi oleh hukum hak cipta dan HKI lainnya yang berlaku di Indonesia. Pengguna tidak diizinkan untuk menyalin, mereproduksi, mendistribusikan, atau membuat karya turunan dari konten Situs tanpa izin tertulis sebelumnya dari Kami.
 
 **11. Penggunaan Akun dan Guestbook/Ulasan**
 
@@ -87,7 +87,7 @@ Kami berkomitmen untuk menyediakan Dokumen Hasil Terjemahan dengan kualitas ting
 
 **13. Ganti Rugi**
 
-Anda setuju untuk membela, mengganti rugi, dan membebaskan Muhammad Siddiq dari dan terhadap setiap dan semua klaim, kerusakan, kewajiban, kerugian, tanggung jawab, biaya atau utang, dan pengeluaran (termasuk namun tidak terbatas pada biaya pengacara) yang timbul dari: (i) penggunaan dan akses Anda ke Layanan; (ii) pelanggaran Anda terhadap Ketentuan ini; atau (iii) pelanggaran Anda terhadap hak pihak ketiga, termasuk namun tidak terbatas pada hak cipta, properti, atau hak privasi.
+Anda setuju untuk membela, mengganti rugi, dan membebaskan Penyedia Layanan dari dan terhadap setiap dan semua klaim, kerusakan, kewajiban, kerugian, tanggung jawab, biaya atau utang, dan pengeluaran (termasuk namun tidak terbatas pada biaya pengacara) yang timbul dari: (i) penggunaan dan akses Anda ke Layanan; (ii) pelanggaran Anda terhadap Ketentuan ini; atau (iii) pelanggaran Anda terhadap hak pihak ketiga, termasuk namun tidak terbatas pada hak cipta, properti, atau hak privasi.
 
 **14. Pengakhiran**
 
