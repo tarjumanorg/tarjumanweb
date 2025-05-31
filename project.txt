@@ -1,19 +1,136 @@
 ---
 
+`astro.config.mjs`:
+```
+import { defineConfig } from 'astro/config';
+import netlify from '@astrojs/netlify';
+
+export default defineConfig({
+  site: 'https://tarjuman.netlify.app',
+  output: 'server',
+  adapter: netlify(),
+});
+```
+---
+
+`tsconfig.json`:
+```
+{
+  "extends": "astro/tsconfigs/strict",
+  "include": [".astro/types.d.ts", "**/*"],
+  "exclude": ["dist"]
+}
+
+```
+---
+
+`src/env.d.ts`:
+```
+declare namespace App {
+  interface Locals {
+    userId?: string;
+    isAnonymous?: boolean;
+  }
+}
+```
+---
+
+`src/env.schema.ts`:
+```
+import { z } from "zod";
+
+export const EnvSchema = z.object({
+  PUBLIC_SUPABASE_URL: z.string().url(),
+  PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
+  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
+  TURNSTILE_SECRET_KEY: z.string().min(1),
+  PUBLIC_TURNSTILE_SITE_KEY: z.string().min(1),
+});
+
+export type EnvVars = z.infer<typeof EnvSchema>;
+
+```
+---
+
+`src/components/Footer.astro`:
+```
+---
+// src/components/Footer.astro
+const currentYear = new Date().getFullYear();
+---
+
+<footer>
+  <div class="container">
+    <p>&copy; {currentYear} Tarjuman. All Rights Reserved.</p>
+    <ul>
+      <li><a href="/terms-of-service">Terms of Service</a></li>
+      <li><a href="/privacy-policy">Privacy Policy</a></li>
+    </ul>
+  </div>
+</footer>
+
+<style>
+  footer {
+    background-color: var(--md-sys-color-tertiary);
+    color: var(--md-sys-color-on-tertiary);
+    padding: 2rem 0;
+    margin-top: auto;
+    font-size: 0.9rem;
+  }
+  footer .container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  footer p {
+    margin: 0.5rem 0;
+  }
+  footer ul {
+    list-style: none;
+    padding: 0;
+    margin: 0.5rem 0;
+    display: flex;
+  }
+  footer ul li {
+    margin-left: 1rem;
+  }
+  footer ul li:first-child {
+    margin-left: 0;
+  }
+  footer a {
+    color: #f8f9fa;
+  }
+  footer a:hover {
+    color: var(--md-sys-color-secondary);
+  }
+</style>
+```
+---
+
 `src/components/Header.astro`:
 ```
 ---
 // src/components/Header.astro
 const logoUrl = "src/images/logo.png";
 const siteName = "Tarjuman";
+import Menu from "../icons/menu.svg";
+import { Image } from "astro:assets";
+import logo from "../images/logo.png";
 ---
 
-<header>
+<header class="row">
   <nav class="container">
     <a href="/" class="logo-link">
-      { logoUrl ? <img src={logoUrl} alt={siteName + " Logo"} class="logo-image" /> : siteName }
+      <Image src={logo} alt="logo" height="24" />
     </a>
-    <ul>
+    <Menu
+      class="menu-toggle"
+      width={32}
+      height={32}
+      fill="var(--md-sys-color-on-surface)"
+    />
+    <ul class="nav-links">
       <li><a href="/">Home</a></li>
       <li><a href="/about">About Us</a></li>
       <li><a href="/services">Services</a></li>
@@ -27,7 +144,7 @@ const siteName = "Tarjuman";
 <style>
   header {
     background-color: var(--md-sys-color-surface-variant);
-    padding: 1rem 0;
+    padding: 1rem;
     border-bottom: 1px solid #e9ecef;
   }
   nav {
@@ -45,12 +162,32 @@ const siteName = "Tarjuman";
     max-height: 40px;
     vertical-align: middle;
   }
-  nav ul {
+  .menu-toggle {
+    z-index: 2;
+  }
+  .nav-links {
+    display: none;
     list-style: none;
     padding: 0;
     margin: 0;
-    display: flex;
   }
+
+  .nav-links.active {
+    display: flex;
+    flex-direction: column;
+    width: 50%;
+    height: 100vh;
+    position: fixed;
+    right: 0;
+    top: 0;
+    padding: 3em 2em;
+    font-size: 1.5em;
+    background-color: var(--md-sys-color-secondary-container);
+    align-items: flex-end;
+    justify-content: flex-start;
+    z-index: 1;
+  }
+
   nav ul li {
     margin-left: 1.5rem;
   }
@@ -63,7 +200,214 @@ const siteName = "Tarjuman";
   nav ul li a.active {
     color: var(--md-sys-color-secondary);
   }
+
+  @media only screen and (min-width: 600px) {
+    .menu-toggle {
+      display: none;
+      z-index: 2;
+    }
+
+    .nav-links {
+      display: flex;
+    }
+  }
 </style>
+
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    const menuToggle = document.querySelector(".menu-toggle");
+    const navLinks = document.querySelector(".nav-links");
+
+    if (menuToggle && navLinks) {
+      // Ensure elements exist
+      menuToggle.addEventListener("click", () => {
+        navLinks.classList.toggle("active");
+        menuToggle.classList.toggle("active"); // For hamburger icon animation
+
+        // Update ARIA attribute for accessibility
+        const isExpanded = navLinks.classList.contains("active");
+        menuToggle.setAttribute("aria-expanded", String(isExpanded));
+      });
+    }
+  });
+</script>
+
+```
+---
+
+`src/components/Reviews.astro`:
+```
+---
+
+import type { GuestbookEntry } from '../schemas/guestbook.schema';
+interface Props {
+  reviews: GuestbookEntry[];
+}
+const { reviews } = Astro.props;
+---
+
+<div>
+  <form id="guestbook-form" method="post" action="/api/guestbook">
+    <h3>Leave a message</h3>
+    <div
+      id="form-status"
+      aria-live="polite"
+      style="min-height: 1.5em; margin-bottom: 1em; font-weight: bold;"
+    >
+    </div>
+
+    <div>
+      <label for="name">Name</label>
+      <input
+        id="name"
+        type="text"
+        placeholder="Your Name"
+        required
+        name="name"
+      />
+    </div>
+    <div>
+      <label for="message">Message</label>
+      <input
+        id="message"
+        type="text"
+        placeholder="A friendly message..."
+        required
+        name="message"
+      />
+    </div>
+    <button id="submit-button" type="submit" data-original-text="Submit">
+      Submit
+    </button>
+  </form>
+
+  <h3>Guestbook Entries</h3>
+  <div id="reviews-list">
+    {
+      reviews.length > 0 ? (
+        <ul>
+          {reviews.map((review) => (
+            <li>
+              <p>
+                <strong>{review.name}</strong>
+              </p>{" "}
+              <p>{review.message}</p>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p>No reviews yet. Be the first!</p>
+      )
+    }
+  </div>
+</div>
+
+<script>
+  import { setupFormSubmitListener } from "../scripts/formHandler";
+  import type { FormSubmitOptions } from "../types/types";
+
+  const form = document.getElementById(
+    "guestbook-form",
+  ) as HTMLFormElement | null;
+  const nameInput = document.getElementById("name") as HTMLInputElement | null;
+  const messageInput = document.getElementById(
+    "message",
+  ) as HTMLInputElement | null;
+  const statusDiv = document.getElementById(
+    "form-status",
+  ) as HTMLElement | null;
+  const submitButton = document.getElementById(
+    "submit-button",
+  ) as HTMLButtonElement | null;
+
+  if (form && nameInput && messageInput && statusDiv && submitButton) {
+    const preparePayloadForReview = (): Record<string, any> | null => {
+      const name = nameInput.value.trim();
+      const message = messageInput.value.trim();
+
+      if (!name || !message) {
+        if (statusDiv) {
+          statusDiv.textContent = "Please enter both name and message.";
+          statusDiv.style.color = "red";
+        }
+        return null;
+      }
+      return { name, message };
+    };
+
+    const onReviewSuccess = (data: any, formElement: HTMLFormElement) => {
+      if (statusDiv) {
+        statusDiv.textContent = "Message submitted successfully!";
+        statusDiv.style.color = "green";
+      }
+      formElement.reset();
+
+      console.log("Submitted data:", data);
+
+      setTimeout(() => {
+        if (statusDiv) statusDiv.textContent = "";
+      }, 5000);
+    };
+
+    const onReviewError = (error: Error, statusElement: HTMLElement | null) => {
+      if (statusElement) {
+        statusElement.textContent = `Error: ${error.message || "Could not submit message."}`;
+        statusElement.style.color = "red";
+      }
+
+    };
+
+    const options: FormSubmitOptions = {
+      formElement: form,
+      statusElement: statusDiv,
+      submitButton: submitButton,
+      preparePayload: preparePayloadForReview,
+      onSuccess: onReviewSuccess,
+      onError: onReviewError,
+
+      submitText: "Submit", 
+    };
+
+    setupFormSubmitListener(options);
+  } else {
+    console.error(
+      "Could not find all required form elements for guestbook submission script.",
+    );
+  }
+</script>
+
+<script type="module">
+  import { supabase } from '../lib/supabase';
+
+  // Real-time updates for guestbook entries
+  function addReviewToUI(review) {
+    const reviewsList = document.getElementById('reviews-list');
+    let ul = reviewsList.querySelector('ul');
+    if (!ul) {
+      ul = document.createElement('ul');
+      reviewsList.innerHTML = '';
+      reviewsList.appendChild(ul);
+    }
+    const li = document.createElement('li');
+    li.innerHTML = `<p><strong>${review.name}</strong></p><p>${review.message}</p>`;
+    ul.appendChild(li);
+  }
+
+  // Subscribe to new guestbook entries
+  const channel = supabase
+    .channel('guestbook-changes')
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'guestbook' },
+      (payload) => {
+        addReviewToUI(payload.new);
+      }
+    )
+    .subscribe();
+
+  // Optionally, clean up on page unload
+  window.addEventListener('beforeunload', () => supabase.removeChannel(channel));
+</script>
 ```
 ---
 
@@ -127,6 +471,21 @@ import '../styles/light.css';
     <slot />
     <Footer />
     <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      .col{
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+
+      .row{
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+      }
       body {
         display: flex;
         flex-direction: column;
@@ -138,5 +497,3858 @@ import '../styles/light.css';
     </style>
   </body>
 </html>
+```
+---
+
+`src/layouts/AdminLayout.astro`:
+```
+---
+import BaseLayout from '../layout/Layout.astro';
+
+interface Props {
+  title: string;
+}
+
+const { title } = Astro.props;
+const siteTitle = "Tarjuman Admin";
+---
+
+<BaseLayout title={`${title} | ${siteTitle}`}>
+  <nav class="admin-nav">
+    <div class="container">
+      <a href="/admin/orders"><strong>{siteTitle}</strong></a>
+      <a href="/api/auth/signout" style="float: right;">Sign Out</a>
+    </div>
+  </nav>
+  <main class="admin-main">
+    <div class="container">
+      <h1>{title}</h1>
+      <slot />
+    </div>
+  </main>
+  <style>
+    /* Admin specific styles */
+    .admin-nav button:disabled { background-color: #ccc; cursor: not-allowed; }
+  </style>
+</BaseLayout>
+```
+---
+
+`src/layouts/LegalPageLayout.astro`:
+```
+---
+// src/layouts/LegalPageLayout.astro
+import BaseLayout from '../layout/Layout.astro'; // Your main layout
+const { frontmatter } = Astro.props; // Markdown frontmatter will be passed here
+---
+
+<BaseLayout title={frontmatter.title}>
+  <main class="legal-container">
+    <h1>{frontmatter.title}</h1>
+    <article class="content-wrapper">
+      <slot /> <!-- Markdown content will be rendered here -->
+    </article>
+  </main>
+</BaseLayout>
+
+<style>
+  .legal-container {
+    max-width: 800px;
+    margin: 2rem auto;
+    padding: 1rem; /* Changed from 0 1rem to give top/bottom padding as well */
+    font-size: 0.9rem;
+  }
+
+  .legal-container h1 {
+    /* BaseLayout already styles h1, but you can add/override here if needed */
+    /* For example, if you wanted specific margin for legal page titles: */
+    /* margin-bottom: 1.5rem; */
+  }
+
+  .content-wrapper :global(h2) {
+    /* Styles for <h2> elements coming from the Markdown content */
+    margin-top: 1.5em;
+    /* BaseLayout already colors h2, add other specific styles if needed */
+  }
+
+  /* 
+    BaseLayout's global body style already sets line-height: 1.6;
+    If you needed to override it specifically for p and li in legal content:
+    .content-wrapper :global(p),
+    .content-wrapper :global(li) {
+      line-height: 1.6;
+    }
+  */
+</style>
+```
+---
+
+`src/lib/supabase.ts`:
+```
+// src/lib/supabase.ts
+import { createClient } from "@supabase/supabase-js";
+import { EnvSchema } from '../env.schema';
+
+const envParseResult = EnvSchema.safeParse(import.meta.env);
+if (!envParseResult.success) {
+  throw new Error('Environment variable validation failed: ' + JSON.stringify(envParseResult.error.flatten()));
+}
+const supabaseUrl = envParseResult.data.PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = envParseResult.data.PUBLIC_SUPABASE_ANON_KEY;
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error("Supabase URL or Anon Key is missing.");
+}
+
+export const supabase = createClient(
+  supabaseUrl,
+  supabaseAnonKey,
+  {
+    auth: {
+      flowType: "pkce",
+      autoRefreshToken: true,
+      detectSessionInUrl: false,
+      persistSession: true,
+    },
+  },
+);
+```
+---
+
+`src/lib/supabaseAdmin.ts`:
+```
+// src/lib/supabaseAdmin.ts
+import { createClient } from "@supabase/supabase-js";
+import { EnvSchema } from '../env.schema';
+
+const envParseResult = EnvSchema.safeParse(import.meta.env);
+if (!envParseResult.success) {
+  throw new Error('Environment variable validation failed: ' + JSON.stringify(envParseResult.error.flatten()));
+}
+
+const supabaseUrl = envParseResult.data.PUBLIC_SUPABASE_URL;
+const supabaseServiceRoleKey = envParseResult.data.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!supabaseUrl || !supabaseServiceRoleKey) {
+  if (!import.meta.env.PROD) {
+      console.error("CRITICAL: Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment variables for admin client.");
+       throw new Error("Admin Supabase client configuration error. Check SUPABASE_SERVICE_ROLE_KEY. Ensure it's NOT prefixed with PUBLIC_.");
+  } else {
+       throw new Error("Server configuration error [Admin SB].");
+  }
+}
+export const supabaseAdmin = createClient(
+  supabaseUrl,
+  supabaseServiceRoleKey,
+  {
+     auth: {
+       autoRefreshToken: false,
+       persistSession: false,
+     }
+  }
+);
+
+console.log("Admin Supabase client initialized (using Service Role Key).");
+```
+---
+
+`src/middleware/index.ts`:
+```
+import { defineMiddleware } from "astro:middleware";
+import { supabase } from "../lib/supabase";
+import { setAuthCookies, deleteAuthCookies } from '../utils/auth';
+import { ACCESS_TOKEN, REFRESH_TOKEN } from '../utils/constants';
+import { jsonErrorResponse } from "../utils/apiResponse"; 
+
+const protectedPaths = ["/dashboard", "/dashboard/my-orders"];
+const redirectPaths = ["/signin"]; 
+const protectedAPIPaths = ["/api/guestbook", "/api/orders/create", "/api/orders"];
+
+const adminPaths = ["/admin", "/admin/orders"]; 
+const adminAPIPaths = ["/api/admin/orders"]; 
+
+function matchesPathPrefix(pathname: string, pathsToCheck: string[]): boolean {
+  const normalizedPathname = pathname.endsWith('/') && pathname.length > 1
+    ? pathname.slice(0, -1)
+    : pathname;
+  return pathsToCheck.some(prefix => normalizedPathname === prefix || normalizedPathname.startsWith(prefix + '/'));
+}
+
+export const onRequest = defineMiddleware(
+  async ({ locals, url, cookies, redirect, request }, next) => { 
+    const pathname = url.pathname;
+    console.log(`\n--- Middleware Start: ${pathname} ---`);
+
+    const accessToken = cookies.get(ACCESS_TOKEN);
+    const refreshToken = cookies.get(REFRESH_TOKEN);
+    locals.userId = undefined;
+    let isAdmin = false; 
+
+    if (accessToken?.value) {
+      console.log("Middleware: Access token found. Verifying with Supabase...");
+
+      const { data: { user }, error: getUserError } = await supabase.auth.getUser(accessToken.value);
+
+      if (user) {
+        console.log(`Middleware: User ${user.id} verified via access token.`);
+        locals.userId = user.id;
+        // Add anonymous flag for downstream logic
+
+        locals.isAnonymous = user.is_anonymous === true;
+        if (user.app_metadata && user.app_metadata.is_admin === true) {
+            console.log(`Middleware: User ${user.id} IS an admin.`);
+            isAdmin = true;
+        } else {
+            console.log(`Middleware: User ${user.id} is NOT an admin (app_metadata: ${JSON.stringify(user.app_metadata)})`);
+        }
+
+      } else {
+        console.log("Middleware: Access token invalid/expired.", getUserError?.message);
+        if (refreshToken?.value) {
+          console.log("Middleware: Refresh token found. Attempting session refresh...");
+          const { data: refreshData, error: refreshError } = await supabase.auth.setSession({
+            access_token: accessToken.value,
+            refresh_token: refreshToken.value,
+          });
+
+          if (refreshData?.session && refreshData?.user) {
+            console.log(`Middleware: Session refreshed successfully for user ${refreshData.user.id}. Setting new cookies.`);
+            locals.userId = refreshData.user.id;
+            setAuthCookies(cookies, refreshData.session);
+
+            if (refreshData.user.app_metadata && refreshData.user.app_metadata.is_admin === true) {
+                console.log(`Middleware: Refreshed user ${refreshData.user.id} IS an admin.`);
+                isAdmin = true;
+            } else {
+                console.log(`Middleware: Refreshed user ${refreshData.user.id} is NOT an admin.`);
+            }
+
+          } else {
+            console.log("Middleware: Session refresh failed. Deleting auth cookies.", refreshError?.message);
+            deleteAuthCookies(cookies);
+          }
+        } else {
+          console.log("Middleware: Invalid access token and no refresh token. Deleting auth cookies.");
+          deleteAuthCookies(cookies);
+        }
+      }
+    } else {
+       console.log("Middleware: No access token found.");
+       if (refreshToken?.value) {
+           console.log("Middleware: Access token missing, but refresh token exists. Deleting likely stale refresh token.");
+           deleteAuthCookies(cookies);
+       }
+    }
+
+    const isProtectedRoute = matchesPathPrefix(pathname, protectedPaths);
+    const isProtectedAPIRoute = matchesPathPrefix(pathname, protectedAPIPaths);
+    const isRedirectRoute = matchesPathPrefix(pathname, redirectPaths);
+
+    const isAdminRoute = matchesPathPrefix(pathname, adminPaths);
+    const isAdminAPIRoute = matchesPathPrefix(pathname, adminAPIPaths);
+
+    if ((isAdminRoute || isAdminAPIRoute) && !isAdmin) {
+        if (!locals.userId) {
+
+            console.log(`Middleware: Unauthorized anonymous access attempt to admin route ${pathname}. Redirecting to /signin.`);
+            if (isAdminAPIRoute) return jsonErrorResponse(401, "Unauthorized: Authentication required.");
+            return redirect("/signin?message=Admin area requires login&redirect=" + encodeURIComponent(pathname));
+        } else {
+
+            console.log(`Middleware: Forbidden access attempt by non-admin user ${locals.userId} to admin route ${pathname}.`);
+             if (isAdminAPIRoute) return jsonErrorResponse(403, "Forbidden: Administrator privileges required.");
+
+             return redirect("/dashboard?message=Forbidden: Admin access required");
+
+        }
+    }
+
+    if (isProtectedRoute && !isAdminRoute && !locals.userId) {
+      console.log(`Middleware: Unauthorized access to protected page ${pathname}. Redirecting to /signin.`);
+      return redirect("/signin?redirect=" + encodeURIComponent(pathname));
+    }
+
+    if (isProtectedAPIRoute && !isAdminAPIRoute && !locals.userId) {
+       console.log(`Middleware: Unauthorized access to protected API route ${pathname}. Returning 401.`);
+       return jsonErrorResponse(401, "Unauthorized");
+    }
+
+    if (isRedirectRoute && locals.userId && !isAdmin) {
+        console.log(`Middleware: User ${locals.userId} is already logged in. Redirecting from ${pathname} to /dashboard.`);
+        return redirect("/dashboard");
+    }
+
+    console.log(`Middleware: Allowing request to ${pathname}. Auth User ID: ${locals.userId ?? 'None'}. Is Admin: ${isAdmin}`);
+    console.log(`--- Middleware End: ${pathname} ---`);
+    return next();
+  },
+);
+```
+---
+
+`src/pages/about.astro`:
+```
+---
+import Layout from "../layout/Layout.astro";
+const title = "Tentang Tarjuman";
+---
+
+<Layout title={title}>
+  <main class="container">
+    <h1>{title}</h1>
+    <section id="about-content">
+      <p>Tarjuman adalah layanan daring (online) yang berfokus pada penyediaan jasa terjemahan tersumpah profesional berkualitas tinggi untuk dokumen yang memerlukan pengesahan resmi.</p>
+      <p>Kami berspesialisasi dalam terjemahan antara <strong>Bahasa Indonesia dan Bahasa Arab</strong>.</p>
+      <p>Misi kami adalah menjembatani hambatan bahasa bagi individu maupun bisnis dengan menawarkan solusi terjemahan yang tepercaya, akurat, dan mudah diakses. Kami memahami pentingnya dokumen resmi Anda dan berkomitmen untuk menanganinya dengan sangat hati-hati dan penuh kerahasiaan.</p>
+      <p>Semua terjemahan dilakukan oleh penerjemah tersumpah yang berpengalaman dan bersertifikat resmi, memastikan keabsahan hukum dan keakuratan dokumen terjemahan Anda.</p>
+      <p>Tarjuman berfungsi sebagai platform tepercaya yang menghubungkan Anda dengan penerjemah tersumpah berkualitas untuk memenuhi kebutuhan spesifik Anda.</p>
+      <p>Didirikan oleh seorang mahasiswa/i Indonesia yang memiliki semangat tinggi terhadap bahasa dan memfasilitasi komunikasi, Tarjuman bertujuan untuk menyederhanakan proses mendapatkan terjemahan tersumpah.</p>
+    </section>
+  </main>
+</Layout>
+
+<style>
+  .container {
+    max-width: 800px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+  }
+</style>
+```
+---
+
+`src/pages/contact.astro`:
+```
+---
+import Layout from "../layout/Layout.astro";
+const title = "Hubungi Kami";
+---
+
+<Layout title={title}>
+  <main class="container">
+    <h1>{title}</h1>
+    <section id="contact-content">
+      <p>Kami siap membantu! Jika Anda memiliki pertanyaan seputar layanan kami atau membutuhkan bantuan terkait pesanan Anda, jangan ragu untuk menghubungi kami.</p>
+      <p><strong>Email:</strong> <a href="mailto:tarjumanorg@gmail.com">tarjumanorg@gmail.com</a></p>
+      <p><strong>Telepon / WhatsApp:</strong> <a href="tel:+62598066420">+62 598 066 420</a></p>
+    </section>
+  </main>
+</Layout>
+
+<style>
+  .container {
+    max-width: 800px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+  }
+</style>
+```
+---
+
+`src/pages/dashboard.astro`:
+```
+---
+// src/pages/dashboard.astro
+import Layout from "../layout/Layout.astro";
+import { getAllGuestbookEntries } from "../services/guestbook.service";
+import Reviews from "../components/Reviews.astro";
+import type { GuestbookEntry } from "../schemas/guestbook.schema";
+
+const { userId } = Astro.locals as { userId: string };
+
+let reviews: GuestbookEntry[] = [];
+let fetchError: string | null = null;
+
+try {
+  reviews = await getAllGuestbookEntries();
+
+} catch (e: any) {
+   fetchError = `Failed to load reviews: ${e.message}`;
+   console.error("Error fetching reviews via service:", e);
+}
+---
+
+<Layout title="Dashboard">
+  <section>
+    <p>
+      Welcome! You are logged in. (User ID: {userId})
+    </p>
+    <p>
+      This is a protected page. You can only see this if you are logged in.
+    </p>
+    <a href="/api/auth/signout">Sign out</a>
+
+    {fetchError && <p style="color: red;">{fetchError}</p>}
+
+    <Reviews reviews={reviews} />
+  </section>
+</Layout>
+```
+---
+
+`src/pages/index.astro`:
+```
+---
+import Layout from "../layout/Layout.astro";
+const title = "Tarjuman: Jasa Terjemahan Tersumpah Profesional";
+---
+
+<Layout title={title}>
+  <main class="container">
+    <header class="hero">
+      <h1>{title}</h1>
+      <p class="subtitle">
+        Jasa terjemahan tersumpah yang akurat dan tepercaya untuk dokumen resmi Anda antara <strong>Bahasa Indonesia dan Bahasa Arab</strong>. Kami menangani KTP, ijazah, akta hukum, dan berbagai dokumen lainnya, menjamin kerahasiaan dan ketepatan melalui penerjemah tersumpah bersertifikat.
+      </p>
+      <a href="/order" class="cta-button">Pesan Terjemahan Anda Sekarang</a>
+    </header>
+
+    <section class="features">
+      <h2>Mengapa Memilih Tarjuman?</h2>
+      <div class="feature-grid">
+        <div class="feature-item">
+          <h3>Penerjemah Bersertifikat</h3>
+          <p>Dokumen Anda ditangani oleh penerjemah tersumpah yang diakui secara resmi, memastikan akurasi maksimal dan keabsahan hukum.</p>
+        </div>
+        <div class="feature-item">
+          <h3>Spesialis Bahasa Indonesia & Arab</h3>
+          <p>Kami merupakan spesialis dalam pasangan bahasa Indonesia dan Arab, memastikan terjemahan yang bernuansa dan relevan secara budaya.</p>
+        </div>
+        <div class="feature-item">
+          <h3>Aman & Rahasia</h3>
+          <p>Kami mengutamakan keamanan dan kerahasiaan dokumen sensitif Anda sepanjang proses terjemahan.</p>
+        </div>
+        <div class="feature-item">
+          <h3>Proses Online Mudah</h3>
+          <p>Unggah dokumen Anda dengan mudah dan terima terjemahan tersumpah Anda secara praktis, semua dilakukan secara online.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+</Layout>
+
+<style>
+  .container {
+    max-width: 960px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+    text-align: center;
+  }
+  .hero {
+    padding: 2rem 0;
+    margin-bottom: 2rem;
+  }
+  .hero h1 {
+    font-size: 2.5rem;
+    margin-bottom: 0.5rem;
+    color: var(--md-sys-color-primary); /* Use your brand color */
+  }
+  .subtitle {
+    font-size: 1.2rem;
+    color: var(--md-sys-color-on-surface-variant);
+    margin-bottom: 1.5rem;
+    max-width: 700px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .cta-button {
+    display: inline-block;
+    padding: 0.8rem 1.5rem;
+    background-color: var(--md-sys-color-primary); /* Use your brand color */
+    color: var(--md-sys-color-on-primary);
+    text-decoration: none;
+    border-radius: 5px;
+    font-size: 1.1rem;
+    transition: background-color 0.3s ease;
+  }
+  .cta-button:hover {
+    background-color: var(--md-sys-color-surface-tint); /* Darker shade */
+  }
+  .features {
+    padding: 2rem 0;
+  }
+  .features h2 {
+    font-size: 2rem;
+    margin-bottom: 1.5rem;
+  }
+  .feature-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.5rem;
+    text-align: left;
+  }
+  .feature-item {
+    background-color: #f9f9f9;
+    padding: 1.5rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  }
+  .feature-item h3 {
+    font-size: 1.3rem;
+    margin-bottom: 0.5rem;
+    color: var(--md-sys-color-primary, #333);
+  }
+</style>
+```
+---
+
+`src/pages/order.astro`:
+```
+---
+import Layout from "../layout/Layout.astro";
+import { PACKAGE_MAP } from "../utils/constants";
+
+const title = "Place Your Order";
+const turnstileSiteKey =
+  import.meta.env.PUBLIC_TURNSTILE_SITE_KEY || "1x00000000000000000000AA";
+
+const packageMapJson = JSON.stringify(PACKAGE_MAP);
+---
+
+<Layout title={title}>
+  {/* No <head> tag here anymore */}
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" defer></script>
+  <style>
+    .hidden { display: none; }
+    button:disabled { background-color: #ccc; cursor: not-allowed; }
+  </style>
+
+  <main>
+    <section>
+      <h1>{title}</h1>
+      <p>Enter your details and upload your documents to start your order.</p>
+
+      <form
+        id="order-form"
+        action="/api/orders/create"
+        method="post"
+        enctype="multipart/form-data"
+        data-package-map={packageMapJson}
+      >
+        <div>
+          <label for="order-files">Upload Documents:</label>
+          <input
+            type="file"
+            id="order-files"
+            name="order_files"
+            multiple
+            required
+            accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.odt,.rtf"
+          />
+          <small>You can select multiple files. Allowed types: PDF, DOC(X), ODT, RTF, TXT, JPG, PNG.</small>
+        </div>
+
+        <div>
+          <label for="orderer-name">Your Name:</label>
+          <input
+            type="text"
+            id="orderer-name"
+            name="orderer_name"
+            required
+            placeholder="Enter your full name"
+          />
+        </div>
+
+        <div>
+          <label for="phone">Phone Number:</label>
+          <input
+            required
+            type="tel"
+            id="phone"
+            name="phone"
+            placeholder="+62XXXXXXX or 08XXXXXXXX"
+          />
+        </div>
+
+        <div>
+          <label for="package-slider">Choose Package:</label>
+          <input
+            type="range"
+            id="package-slider"
+            name="package_tier_value"
+            min="1"
+            max="3"
+            step="1"
+            value="1"
+            required
+          />
+          <div id="package-display-container">
+            Selected Package: <span id="selected-package-display">Basic</span>
+          </div>
+        </div>
+
+        <div class="checkbox-group">
+          <input
+            type="checkbox"
+            id="is-disadvantaged"
+            name="is_disadvantaged"
+          />
+          <label for="is-disadvantaged">I am requesting consideration for Economic Disadvantage</label>
+        </div>
+        <div id="certificate-container" class="hidden">
+          <label for="certificate-file">Upload Proof (e.g., Certificate of Indigence):</label>
+          <input
+            type="file"
+            id="certificate-file"
+            name="certificate_file"
+            accept=".pdf,.jpg,.jpeg,.png"
+          />
+          <small>Required if economic disadvantage is checked.</small>
+        </div>
+
+        <div class="checkbox-group">
+          <input type="checkbox" id="is-school" name="is_school" />
+          <label for="is-school">This order is for a school or organization</label>
+        </div>
+
+        <div style="margin-top: 1.5rem;">
+          <label>Verification:</label>
+          <div class="cf-turnstile" data-sitekey={turnstileSiteKey}></div>
+        </div>
+
+        <div id="order-status" aria-live="polite" style="min-height: 1.5em;"></div>
+
+        <button
+          type="submit"
+          id="submit-order-button"
+          data-original-text="Submit Order"
+        >
+          Submit Order
+        </button>
+      </form>
+    </section>
+  </main>
+</Layout>
+
+<script src="../scripts/orderFormClient.ts"></script>
+```
+---
+
+`src/pages/privacy-policy.md`:
+```
+---
+layout: ../layouts/LegalPageLayout.astro
+title: Privacy Policy
+---
+
+## Kebijakan Privasi Tarjuman
+
+**Tanggal Efektif: 31 Mei 2025**
+
+Muhammad Siddiq ("Kami", "Kita", atau "Penyedia Layanan") berkomitmen untuk melindungi privasi pengguna ("Pengguna", "Anda") situs web Tarjuman (https://tarjuman.netlify.app) ("Situs") dan layanan terjemahan tersumpah Kami ("Layanan"). Kebijakan Privasi ini menjelaskan bagaimana Kami mengumpulkan, menggunakan, mengungkapkan, dan melindungi informasi pribadi Anda.
+
+Dengan menggunakan Layanan Kami, Anda menyetujui pengumpulan dan penggunaan informasi sesuai dengan kebijakan ini.
+
+**1. Informasi yang Kami Kumpulkan**
+
+Kami dapat mengumpulkan beberapa jenis informasi untuk berbagai tujuan guna menyediakan dan meningkatkan Layanan Kami kepada Anda:
+
+*   **Data Pribadi yang Dapat Diidentifikasi:**
+    *   **Saat Pemesanan:** Nama lengkap, nomor telepon.
+    *   **Saat Login (jika menggunakan Google Sign-In):** Alamat email, nama, dan informasi profil dasar yang diizinkan oleh Google.
+    *   **Saat Menggunakan Guestbook/Ulasan:** Nama (bisa nama samaran) dan pesan ulasan.
+    *   **Dokumen yang Diunggah:** Dokumen Asli yang Anda unggah untuk diterjemahkan (misalnya KTP, KK, Ijazah, Akta) dan sertifikat pendukung (misalnya surat keterangan tidak mampu). Ini adalah data yang sangat sensitif dan Kami tangani dengan sangat hati-hati.
+    *   **Komunikasi:** Informasi apa pun yang Anda berikan saat menghubungi Kami melalui email atau saluran komunikasi lainnya.
+
+*   **Data Penggunaan:**
+    *   Kami dapat mengumpulkan informasi tentang bagaimana Layanan diakses dan digunakan ("Data Penggunaan"). Data Penggunaan ini dapat mencakup informasi seperti alamat Protokol Internet (IP) komputer Anda (misalnya, untuk Cloudflare Turnstile dan analitik umum), jenis browser, versi browser, halaman Layanan Kami yang Anda kunjungi, waktu dan tanggal kunjungan Anda, waktu yang dihabiskan di halaman tersebut, pengidentifikasi perangkat unik, dan data diagnostik lainnya.
+
+*   **Cookies dan Teknologi Pelacakan Serupa:**
+    *   Kami menggunakan cookies dan teknologi pelacakan serupa untuk melacak aktivitas di Layanan Kami dan menyimpan informasi tertentu. Cookies adalah file dengan sejumlah kecil data yang mungkin menyertakan pengidentifikasi unik anonim.
+    *   Jenis cookies yang mungkin Kami gunakan:
+        *   **Cookies Sesi:** Untuk mengoperasikan Layanan Kami (misalnya, token akses Supabase).
+        *   **Cookies Preferensi:** Untuk mengingat preferensi Anda dan berbagai pengaturan.
+        *   **Cookies Keamanan:** Untuk tujuan keamanan.
+        *   **Cookies Analitik:** Untuk membantu Kami memahami bagaimana Layanan Kami digunakan (misalnya, melalui analitik internal atau pihak ketiga yang terintegrasi secara minimal).
+    *   Anda dapat menginstruksikan browser Anda untuk menolak semua cookies atau untuk menunjukkan kapan cookie dikirim. Namun, jika Anda tidak menerima cookies, Anda mungkin tidak dapat menggunakan beberapa bagian dari Layanan Kami.
+
+**2. Bagaimana Kami Menggunakan Informasi Anda**
+
+Kami menggunakan informasi yang dikumpulkan untuk berbagai tujuan:
+
+*   Untuk menyediakan dan memelihara Layanan Kami, termasuk memproses pesanan terjemahan Anda.
+*   Untuk mengelola akun Anda dan mengautentikasi akses Anda.
+*   Untuk berkomunikasi dengan Anda mengenai pesanan Anda, pertanyaan, atau permintaan layanan pelanggan.
+*   Untuk memverifikasi identitas Anda dan mencegah penipuan (misalnya, melalui Cloudflare Turnstile).
+*   Untuk memproses pembayaran melalui gateway pembayaran pihak ketiga (Duitku.com).
+*   Untuk meningkatkan Layanan Kami, termasuk menganalisis tren penggunaan dan mengumpulkan umpan balik.
+*   Untuk menampilkan ulasan atau testimoni di Situs Kami (dengan moderasi dan persetujuan implisit saat pengiriman).
+*   Untuk mematuhi kewajiban hukum Kami.
+
+Kami **tidak** akan menggunakan data pribadi Anda untuk tujuan pemasaran langsung tanpa persetujuan eksplisit Anda.
+
+**3. Berbagi Informasi Anda dengan Pihak Ketiga**
+
+Kami tidak akan menjual, menyewakan, atau memperdagangkan informasi pribadi Anda kepada pihak ketiga. Kami hanya dapat membagikan informasi pribadi Anda dalam situasi terbatas berikut:
+
+*   **Penyedia Layanan Pihak Ketiga:** Kami dapat mempekerjakan perusahaan dan individu pihak ketiga untuk memfasilitasi Layanan Kami ("Penyedia Layanan"), untuk menyediakan Layanan atas nama Kami, untuk melakukan layanan terkait Situs (misalnya, hosting, analisis data, pemrosesan pembayaran), atau untuk membantu Kami dalam menganalisis bagaimana Layanan Kami digunakan. Pihak ketiga ini memiliki akses ke informasi pribadi Anda hanya untuk melakukan tugas-tugas ini atas nama Kami dan berkewajiban untuk tidak mengungkapkan atau menggunakannya untuk tujuan lain. Ini termasuk:
+    *   **Supabase:** Untuk backend, database, autentikasi, dan penyimpanan file.
+    *   **Netlify:** Untuk hosting situs web dan fungsi server.
+    *   **Cloudflare:** Untuk layanan keamanan seperti Turnstile (verifikasi CAPTCHA).
+    *   **Google:** Untuk layanan autentikasi (Google Sign-In).
+    *   **Duitku.com:** Untuk pemrosesan pembayaran.
+    *   **Penerjemah Tersumpah:** Dokumen Asli Anda akan dibagikan dengan Penerjemah Tersumpah yang ditugaskan untuk mengerjakan pesanan Anda. Penerjemah Tersumpah terikat oleh kewajiban kerahasiaan profesional dan sumpah jabatan mereka.
+
+*   **Kepatuhan Hukum:** Kami dapat mengungkapkan informasi pribadi Anda jika diharuskan oleh hukum atau sebagai tanggapan atas permintaan yang sah dari otoritas publik (misalnya, pengadilan atau lembaga pemerintah).
+
+*   **Perlindungan Hak:** Kami dapat mengungkapkan informasi Anda jika Kami yakin bahwa pengungkapan tersebut diperlukan untuk melindungi hak, properti, atau keselamatan Kami, pelanggan Kami, atau orang lain.
+
+**4. Penyimpanan dan Keamanan Data**
+
+*   **Penyimpanan Dokumen:** Dokumen Asli, sertifikat pendukung, dan Dokumen Hasil Terjemahan disimpan dengan aman di server Supabase Storage. Kami menerapkan langkah-langkah keamanan teknis dan organisasi yang wajar untuk melindungi informasi Anda.
+*   **Keamanan:** Keamanan informasi Anda penting bagi Kami. Kami menggunakan langkah-langkah yang disediakan oleh Supabase dan praktik terbaik industri untuk melindungi data Anda. Namun, harap diingat bahwa tidak ada metode transmisi melalui Internet atau metode penyimpanan elektronik yang 100% aman. Meskipun Kami berusaha untuk menggunakan cara yang dapat diterima secara komersial untuk melindungi Informasi Pribadi Anda, Kami tidak dapat menjamin keamanan mutlaknya.
+*   **Peningkatan Keamanan:** Kami berkomitmen untuk terus meningkatkan langkah-langkah keamanan Kami seiring dengan perkembangan teknologi dan praktik terbaik.
+
+**5. Retensi Data**
+
+*   Kami akan menyimpan informasi pribadi Anda hanya selama diperlukan untuk tujuan yang ditetapkan dalam Kebijakan Privasi ini.
+*   **Dokumen Pesanan:** Dokumen Asli, sertifikat pendukung, dan Dokumen Hasil Terjemahan akan disimpan untuk jangka waktu yang wajar setelah penyelesaian atau pembatalan pesanan, misalnya **2 Tahun**, sebelum dihapus secara otomatis dari sistem penyimpanan Kami. Jangka waktu ini memungkinkan penyelesaian masalah pasca-layanan jika ada.
+*   **Data Akun dan Transaksi:** Informasi terkait akun (jika ada) dan riwayat transaksi akan disimpan selama diperlukan untuk tujuan audit, kepatuhan hukum, atau penyelesaian sengketa.
+*   **Data Guestbook/Ulasan:** Pesan ulasan yang ditampilkan dapat disimpan tanpa batas waktu tertentu kecuali ada permintaan penghapusan dari Pengguna.
+
+**6. Hak Anda Terkait Data Pribadi**
+
+Sesuai dengan hukum perlindungan data yang berlaku di Indonesia, Anda memiliki hak-hak tertentu terkait informasi pribadi Anda:
+
+*   **Hak untuk Mengakses:** Anda berhak meminta salinan informasi pribadi Anda yang Kami simpan.
+*   **Hak untuk Memperbaiki:** Anda berhak meminta Kami untuk memperbaiki informasi pribadi Anda yang tidak akurat atau tidak lengkap.
+*   **Hak untuk Menghapus ("Hak untuk Dilupakan"):** Anda berhak meminta penghapusan informasi pribadi Anda dalam kondisi tertentu (misalnya, jika data tersebut tidak lagi diperlukan untuk tujuan pengumpulannya, atau jika Anda menarik persetujuan).
+*   **Hak untuk Membatasi Pemrosesan:** Anda berhak meminta Kami untuk membatasi pemrosesan informasi pribadi Anda dalam keadaan tertentu.
+*   **Hak untuk Keberatan terhadap Pemrosesan:** Anda berhak untuk keberatan terhadap pemrosesan informasi pribadi Anda dalam keadaan tertentu.
+
+Untuk menggunakan hak-hak ini, silakan hubungi Kami melalui detail kontak yang disediakan di bawah. Kami mungkin perlu memverifikasi identitas Anda sebelum menanggapi permintaan Anda.
+
+**7. Privasi Anak-Anak**
+
+Layanan Kami tidak ditujukan untuk siapa pun yang berusia di bawah 18 tahun ("Anak-anak") tanpa persetujuan orang tua/wali. Kami tidak secara sadar mengumpulkan informasi yang dapat diidentifikasi secara pribadi dari Anak-anak tanpa verifikasi persetujuan orang tua. Jika Anda adalah orang tua atau wali dan Anda mengetahui bahwa Anak Anda telah memberikan Informasi Pribadi kepada Kami, silakan hubungi Kami. Jika Kami mengetahui bahwa Kami telah mengumpulkan Informasi Pribadi dari Anak-anak tanpa verifikasi persetujuan orang tua, Kami akan mengambil langkah-langkah untuk menghapus informasi tersebut dari server Kami.
+
+**8. Penanganan Akun Anonim**
+
+Jika Anda menggunakan Layanan Kami secara anonim (misalnya, saat melakukan pemesanan sebelum login atau tanpa membuat akun permanen), Kami akan mengumpulkan informasi yang diperlukan untuk memproses pesanan tersebut. Jika sesi anonim tersebut kemudian ditautkan ke akun permanen (misalnya, melalui login setelahnya), data dari sesi anonim dapat dikaitkan dengan akun permanen Anda untuk memberikan pengalaman layanan yang berkelanjutan.
+
+**9. Tautan ke Situs Web Lain**
+
+Layanan Kami mungkin berisi tautan ke situs web lain yang tidak dioperasikan oleh Kami (misalnya, tautan ke Duitku.com). Jika Anda mengklik tautan pihak ketiga, Anda akan diarahkan ke situs pihak ketiga tersebut. Kami sangat menyarankan Anda untuk meninjau Kebijakan Privasi setiap situs yang Anda kunjungi. Kami tidak memiliki kendali atas dan tidak bertanggung jawab atas konten, kebijakan privasi, atau praktik situs atau layanan pihak ketiga mana pun.
+
+**10. Perubahan pada Kebijakan Privasi Ini**
+
+Kami dapat memperbarui Kebijakan Privasi Kami dari waktu ke waktu. Kami akan memberi tahu Anda tentang perubahan apa pun dengan memposting Kebijakan Privasi baru di halaman ini dan memperbarui "Tanggal Efektif" di bagian atas Kebijakan Privasi ini.
+Anda disarankan untuk meninjau Kebijakan Privasi ini secara berkala untuk setiap perubahan. Perubahan pada Kebijakan Privasi ini efektif ketika diposting di halaman ini.
+
+**11. Kontak**
+
+Jika Anda memiliki pertanyaan mengenai Kebijakan Privasi ini, silakan hubungi Kami di:
+Email: tarjumanorg@gmail.com
+Telepon/WhatsApp: +62 598 066 420
+```
+---
+
+`src/pages/services.astro`:
+```
+---
+import Layout from "../layout/Layout.astro";
+const title = "Our Translation Services";
+---
+
+<Layout title={title}>
+  <main class="container">
+    <h1>{title}</h1>
+    <section id="services-content">
+      <p>Tarjuman provides expert sworn translation services for a wide range of official documents.</p>
+      <p><strong>Language Pair:</strong> We specialize exclusively in translations between <strong>Indonesian and Arabic</strong> (both directions).</p>
+      <p><strong>Types of Documents We Translate:</strong></p>
+      <ul>
+        <li>ID Cards (KTP)</li>
+        <li>Family Cards (KK)</li>
+        <li>Birth Certificates</li>
+        <li>Marriage Certificates</li>
+        <li>Diplomas and Academic Transcripts</li>
+        <li>Passports</li>
+        <li>Driver's Licenses</li>
+        <li>Legal Contracts</li>
+        <li>Court Documents</li>
+        <li>Company Establishment Deeds</li>
+        <li>Other official and legal documents</li>
+      </ul>
+      <p><strong>How It Works (Simplified):</strong></p>
+      <ol>
+        <li><strong>Upload Your Documents:</strong> Securely upload your document(s) through our online order form.</li>
+        <li><strong>Admin Review:</strong> Our team will review your documents to confirm the page count.</li>
+        <li><strong>Package Selection:</strong> You'll be prompted to select a translation package that suits your needs.</li>
+        <li><strong>Sworn Translation:</strong> A certified sworn translator processes your document.</li>
+        <li><strong>Receive Your Translation:</strong> Download your certified translated document.</li>
+      </ol>
+      <p>All translations are delivered with a statement of certification from the sworn translator.</p>
+    </section>
+  </main>
+</Layout>
+
+<style>
+  .container {
+    max-width: 800px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+  }
+</style>
+```
+---
+
+`src/pages/signin.astro`:
+```
+---
+// src/pages/signin.astro
+import Layout from "../layout/Layout.astro";
+const title = "Sign In";
+---
+
+<Layout title={title}>
+  <main>
+    <section>
+      <h1>{title}</h1>
+      <p>
+        Use Google to sign in to your account.
+      </p>
+      <form
+        action="/api/auth/signin"
+        method="post"
+      >
+        <button
+          value="google"
+          name="provider"
+          type="submit"
+        >
+           Sign in with Google
+        </button>
+      </form>
+    </section>
+  </main>
+</Layout>
+```
+---
+
+`src/pages/terms-of-service.md`:
+```
+---
+layout: ../layouts/LegalPageLayout.astro
+title: Terms of Service
+---
+
+## Ketentuan Layanan Tarjuman
+
+**Tanggal Efektif: 31 Mei 2025**
+
+Selamat datang di Tarjuman!
+
+Ketentuan Layanan ("Ketentuan") ini mengatur penggunaan Anda atas situs web Tarjuman (https://tarjuman.netlify.app) ("Situs") dan semua layanan terjemahan tersumpah yang disediakan oleh Tarjuman ("Layanan"). Layanan ini dioperasikan oleh Muhammad Siddiq ("Kami", "Kita", atau "Penyedia Layanan").
+
+Dengan mengakses atau menggunakan Layanan Kami, Anda ("Pengguna", "Anda") setuju untuk terikat oleh Ketentuan ini. Jika Anda tidak menyetujui sebagian atau seluruh Ketentuan ini, Anda tidak diizinkan menggunakan Layanan Kami.
+
+**1. Definisi**
+
+*   **Dokumen Asli:** Dokumen elektronik yang diunggah oleh Pengguna ke Situs untuk diterjemahkan.
+*   **Dokumen Hasil Terjemahan:** Dokumen elektronik yang merupakan hasil terjemahan tersumpah dari Dokumen Asli ke bahasa target.
+*   **Penerjemah Tersumpah:** Seorang profesional yang telah diakui secara resmi dan memiliki kewenangan hukum untuk melakukan terjemahan resmi dan tersumpah di Indonesia.
+
+**2. Deskripsi Layanan**
+
+Tarjuman menyediakan platform online yang menghubungkan Pengguna dengan Penerjemah Tersumpah untuk layanan terjemahan dokumen resmi antara bahasa Indonesia dan Arab. Layanan mencakup penerimaan dokumen, konfirmasi jumlah halaman, pemilihan paket layanan oleh Pengguna, proses penerjemahan oleh Penerjemah Tersumpah, dan pengiriman Dokumen Hasil Terjemahan secara elektronik.
+
+**3. Kelayakan Pengguna**
+
+Anda menyatakan dan menjamin bahwa Anda berusia minimal 18 (delapan belas) tahun atau usia dewasa menurut hukum yang berlaku di yurisdiksi Anda. Jika Anda berusia di bawah 18 (delapan belas) tahun, Anda hanya dapat menggunakan Layanan dengan persetujuan dan di bawah pengawasan orang tua atau wali sah Anda yang setuju untuk terikat oleh Ketentuan ini.
+
+**4. Proses Pemesanan dan Layanan**
+
+*   **Pengunggahan Dokumen:** Pengguna mengunggah Dokumen Asli melalui formulir pemesanan di Situs.
+*   **Verifikasi dan Konfirmasi Halaman:** Tim Kami akan meninjau Dokumen Asli untuk mengonfirmasi jumlah halaman yang akan dikenakan biaya.
+*   **Pemilihan Paket:** Pengguna akan diminta untuk memilih paket layanan berdasarkan kebutuhan dan estimasi waktu pengerjaan yang ditawarkan. Pengguna bertanggung jawab penuh atas pilihan paketnya.
+*   **Pembayaran:** Setelah jumlah halaman dikonfirmasi dan paket dipilih, Pengguna akan diarahkan untuk melakukan pembayaran melalui gateway pembayaran pihak ketiga (Duitku.com). Pembayaran harus diselesaikan sebelum proses penerjemahan dimulai.
+*   **Proses Penerjemahan:** Setelah pembayaran dikonfirmasi, Dokumen Asli akan diterjemahkan oleh Penerjemah Tersumpah yang kompeten.
+*   **Peninjauan dan Revisi:**
+    *   Setelah Dokumen Hasil Terjemahan awal selesai, Kami akan mengunggahnya untuk ditinjau oleh Pengguna.
+    *   Pengguna memiliki kesempatan untuk memberikan masukan atau koreksi jika terdapat ketidaksesuaian (bukan perubahan substansi dari Dokumen Asli). Idealnya, proses revisi ini dilakukan 1 (satu) kali.
+    *   Kami akan melakukan koreksi berdasarkan masukan yang wajar dari Pengguna.
+*   **Pengiriman Final:** Setelah Pengguna puas atau batas revisi wajar telah terpenuhi, Dokumen Hasil Terjemahan final akan disediakan untuk diunduh oleh Pengguna.
+
+**5. Harga dan Pembayaran**
+
+*   Harga Layanan akan ditentukan berdasarkan paket yang dipilih dan jumlah halaman Dokumen Asli yang dikonfirmasi.
+*   Semua harga akan ditampilkan dalam mata uang Rupiah (IDR) dan mungkin dikenakan pajak yang berlaku.
+*   Pembayaran dilakukan melalui Duitku.com. Dengan melakukan pembayaran, Anda setuju untuk tunduk pada ketentuan layanan Duitku.com.
+
+**6. Kebijakan Pembatalan dan Pengembalian Dana**
+
+*   **Pembatalan oleh Pengguna:** Pengguna dapat membatalkan pesanan tanpa biaya apa pun sebelum melakukan pembayaran. Setelah pembayaran dilakukan, pembatalan tunduk pada kebijakan Kami.
+*   **Pengembalian Dana:** Jika pembatalan disetujui setelah pembayaran (dalam kondisi tertentu yang ditentukan oleh Kami), pengembalian dana akan diproses. Biaya transaksi yang dikenakan oleh gateway pembayaran (Duitku.com) mungkin tidak dapat dikembalikan dan akan dipotong dari jumlah pengembalian dana.
+*   **Pembatalan oleh Penyedia Layanan:** Kami berhak membatalkan pesanan jika Dokumen Asli mengandung materi ilegal, melanggar hukum, atau jika Kami tidak dapat memenuhi permintaan karena alasan teknis atau operasional. Dalam kasus ini, pengembalian dana penuh akan diberikan jika pembayaran telah dilakukan.
+
+**7. Estimasi Waktu Pengerjaan dan Keterlambatan**
+
+*   Estimasi waktu pengerjaan ("turnaround days") akan ditampilkan berdasarkan paket yang dipilih. Estimasi ini dimulai setelah pembayaran dikonfirmasi dan semua informasi yang diperlukan telah diterima.
+*   Meskipun Kami berusaha keras untuk memenuhi estimasi waktu, keterlambatan dapat terjadi karena faktor-faktor di luar kendali Kami. Jika terjadi keterlambatan yang signifikan dan disebabkan oleh kelalaian Kami, Kami akan menginformasikan Pengguna dan dapat menawarkan kompensasi atau solusi yang sesuai berdasarkan kasus per kasus.
+
+**8. Kualitas Terjemahan**
+
+Kami berkomitmen untuk menyediakan Dokumen Hasil Terjemahan dengan kualitas tinggi yang akurat, sesuai dengan standar profesional penerjemahan tersumpah, dan dapat digunakan untuk keperluan resmi, termasuk urusan di luar negeri. Penerjemahan dilakukan oleh Penerjemah Tersumpah yang terikat oleh kode etik profesi.
+
+**9. Tanggung Jawab Pengguna**
+
+*   Pengguna bertanggung jawab penuh atas keaslian, keakuratan, dan legalitas Dokumen Asli yang diunggah. Kami hanya menerjemahkan konten "sebagaimana adanya" dan tidak bertanggung jawab atas konsekuensi hukum apa pun yang timbul dari Dokumen Asli yang tidak benar atau ilegal.
+*   Pengguna bertanggung jawab untuk memilih paket layanan yang sesuai dengan kebutuhan mereka.
+*   Pengguna setuju untuk tidak menggunakan Layanan untuk tujuan yang melanggar hukum, menipu, atau merugikan.
+*   Pengguna setuju untuk tidak mengunggah Dokumen Asli yang mengandung virus, malware, atau kode berbahaya lainnya.
+*   Pengguna setuju untuk tidak mencoba mengakses sistem Kami secara tidak sah, mengganggu, atau merusak Layanan.
+
+**10. Hak Kekayaan Intelektual (HKI)**
+
+*   **Dokumen Pengguna:** Hak kekayaan intelektual atas Dokumen Asli tetap menjadi milik Pengguna. Hak kekayaan intelektual atas Dokumen Hasil Terjemahan akan menjadi milik Pengguna setelah pembayaran penuh atas Layanan diterima oleh Kami.
+*   **Konten Situs Tarjuman:** Semua konten yang terdapat di Situs, termasuk namun tidak terbatas pada logo, merek dagang, teks, grafik, desain, perangkat lunak, dan kode sumber, adalah milik Muhammad Siddiq atau pemberi lisensinya dan dilindungi oleh hukum hak cipta dan HKI lainnya yang berlaku di Indonesia. Pengguna tidak diizinkan untuk menyalin, mereproduksi, mendistribusikan, atau membuat karya turunan dari konten Situs tanpa izin tertulis sebelumnya dari Kami.
+
+**11. Penggunaan Akun dan Guestbook/Ulasan**
+
+*   Jika Layanan memerlukan pembuatan akun, Anda bertanggung jawab untuk menjaga kerahasiaan informasi akun Anda.
+*   Untuk fitur "Guestbook" atau ulasan, Pengguna dapat memberikan nama (tidak harus nama asli) dan pesan. Pesan yang dikirimkan dapat ditampilkan secara publik di Situs setelah melalui proses moderasi oleh Kami. Kami berhak untuk tidak menampilkan atau menghapus ulasan yang dianggap tidak pantas, melanggar hukum, atau berisi spam.
+
+**12. Batasan Tanggung Jawab**
+
+*   LAYANAN INI DISEDIAKAN "SEBAGAIMANA ADANYA" DAN "SEBAGAIMANA TERSEDIA" TANPA JAMINAN APA PUN, BAIK TERSURAT MAUPUN TERSIRAT.
+*   KAMI TIDAK BERTANGGUNG JAWAB ATAS KERUGIAN TIDAK LANGSUNG, INSIDENTAL, KHUSUS, KONSEKUENSIAL, ATAU HUKUMAN, TERMASUK NAMUN TIDAK TERBATAS PADA KEHILANGAN KEUNTUNGAN, DATA, PENGGUNAAN, NIAT BAIK, ATAU KERUGIAN TIDAK BERWUJUD LAINNYA, YANG TIMBUL DARI (i) AKSES ATAU PENGGUNAAN ANDA ATAU KETIDAKMAMPUAN UNTUK MENGAKSES ATAU MENGGUNAKAN LAYANAN; (ii) SETIAP PERILAKU ATAU KONTEN PIHAK KETIGA PADA LAYANAN; (iii) SETIAP KONTEN YANG DIPEROLEH DARI LAYANAN; DAN (iv) AKSES, PENGGUNAAN, ATAU PERUBAHAN YANG TIDAK SAH ATAS TRANSMISI ATAU KONTEN ANDA.
+*   DALAM KEADAAN APA PUN, TANGGUNG JAWAB AGREGAT KAMI KEPADA ANDA ATAS SEMUA KLAIM YANG BERKAITAN DENGAN LAYANAN TIDAK AKAN MELEBIHI JUMLAH YANG TELAH ANDA BAYARKAN KEPADA KAMI UNTUK LAYANAN YANG MENIMBULKAN KLAIM TERSEBUT.
+
+**13. Ganti Rugi**
+
+Anda setuju untuk membela, mengganti rugi, dan membebaskan Muhammad Siddiq dari dan terhadap setiap dan semua klaim, kerusakan, kewajiban, kerugian, tanggung jawab, biaya atau utang, dan pengeluaran (termasuk namun tidak terbatas pada biaya pengacara) yang timbul dari: (i) penggunaan dan akses Anda ke Layanan; (ii) pelanggaran Anda terhadap Ketentuan ini; atau (iii) pelanggaran Anda terhadap hak pihak ketiga, termasuk namun tidak terbatas pada hak cipta, properti, atau hak privasi.
+
+**14. Pengakhiran**
+
+Kami dapat menangguhkan atau menghentikan akses Anda ke Layanan Kami segera, tanpa pemberitahuan atau tanggung jawab sebelumnya, atas kebijakan Kami sendiri, untuk alasan apa pun, termasuk namun tidak terbatas pada jika Anda melanggar Ketentuan ini.
+Setelah pengakhiran, hak Anda untuk menggunakan Layanan akan segera berakhir.
+
+**15. Hukum yang Mengatur dan Penyelesaian Sengketa**
+
+Ketentuan ini akan diatur dan ditafsirkan sesuai dengan hukum Negara Republik Indonesia, tanpa memperhatikan pertentangan ketentuan hukumnya.
+Setiap sengketa, perselisihan, atau klaim yang timbul dari atau sehubungan dengan Ketentuan ini atau pelanggaran, pengakhiran, atau keabsahannya, akan diupayakan untuk diselesaikan secara musyawarah untuk mufakat. Jika penyelesaian secara musyawarah tidak tercapai dalam waktu 30 (tiga puluh) hari, maka sengketa tersebut akan diselesaikan melalui pengadilan yang berwenang di Padang.
+
+**16. Perubahan Ketentuan**
+
+Kami berhak, atas kebijakan Kami sendiri, untuk mengubah atau mengganti Ketentuan ini kapan saja. Jika revisi bersifat material, Kami akan berusaha memberikan pemberitahuan setidaknya 15 hari sebelum ketentuan baru berlaku. Apa yang merupakan perubahan material akan ditentukan atas kebijakan Kami sendiri.
+Dengan terus mengakses atau menggunakan Layanan Kami setelah revisi tersebut berlaku, Anda setuju untuk terikat oleh ketentuan yang direvisi.
+
+**17. Keterpisahan**
+
+Jika ada ketentuan dalam Ketentuan ini yang dianggap tidak sah atau tidak dapat dilaksanakan oleh pengadilan yang berwenang, ketentuan tersebut akan dilaksanakan sejauh mungkin yang diizinkan oleh hukum yang berlaku, dan ketentuan lainnya dari Ketentuan ini akan tetap berlaku penuh.
+
+**18. Kontak**
+
+Jika Anda memiliki pertanyaan mengenai Ketentuan Layanan ini, silakan hubungi Kami di:
+Email: tarjumanorg@gmail.com
+Telepon/WhatsApp: +62 598 066 420
+```
+---
+
+`src/pages/admin/index.astro`:
+```
+---
+// src/pages/admin/index.astro
+return Astro.redirect('/admin/orders');
+---
+```
+---
+
+`src/pages/admin/orders/index.astro`:
+```
+---
+import AdminLayout from "../../../layouts/AdminLayout.astro";
+import { formatDate } from "../../../utils/dateUtils";
+import { supabaseAdmin } from '../../../lib/supabaseAdmin';
+import { OrderSchema } from '../../../schemas/order.schema';
+import type { Order } from '../../../schemas/order.schema';
+import { handleSupabaseError } from '../../../utils/supabaseUtils';
+
+// Use a local type for the admin table view
+interface AdminOrderTableRow {
+  id: number;
+  user_id: string;
+  orderer_name: string;
+  status: Order['status'];
+  created_at: string;
+  package_tier?: string | null;
+}
+
+let orders: AdminOrderTableRow[] = [];
+let errorMessage: string | null = null;
+
+try {
+  // Direct DB call using supabaseAdmin
+  const { data, error } = await supabaseAdmin
+    .from("orders")
+    .select(`id, created_at, orderer_name, status, package_tier, user_id`)
+    .order("created_at", { ascending: false });
+  handleSupabaseError(error, "fetch all orders (admin page)");
+  const ResponseOrderSchema = OrderSchema.pick({
+    id: true,
+    created_at: true,
+    orderer_name: true,
+    status: true,
+    package_tier: true,
+    user_id: true,
+  });
+  const parseResult = ResponseOrderSchema.array().safeParse(data);
+  if (!parseResult.success) {
+    console.error('Admin Orders page response validation failed:', parseResult.error.flatten());
+    throw new Error('Internal error: Invalid data format for orders.');
+  }
+  orders = parseResult.data;
+} catch (e: any) {
+  console.error("Error fetching admin orders:", e);
+  errorMessage = "Could not load orders. Please check server logs or try again later.";
+}
+---
+
+<AdminLayout title="Manage Orders">
+  {errorMessage && <p style="color: red;">Error: {errorMessage}</p>}
+
+  {orders.length === 0 && !errorMessage ? (
+    <p>No orders found.</p>
+  ) : (
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Created</th>
+          <th>Orderer Name</th>
+          <th>Status</th>
+          <th>Package</th>
+          <th>User ID</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {orders.map((order) => (
+          <tr>
+            <td>{order.id}</td>
+            <td>{formatDate(order.created_at)}</td>
+            <td>{order.orderer_name}</td>
+            <td>{order.status || 'N/A'}</td>
+            <td>{order.package_tier || 'N/A'}</td>
+            <td>{order.user_id}</td>
+            <td>
+              <a href={`/admin/orders/${order.id}`}>Details</a>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )}
+</AdminLayout>
+```
+---
+
+`src/pages/admin/orders/[orderId].astro`:
+```
+---
+import AdminLayout from "../../../layouts/AdminLayout.astro";
+import { formatDate } from "../../../utils/dateUtils";
+import type { ApiOrderResponse } from "../../../utils/storageUtils";
+import type { SignedFileInfo } from '../../../schemas/order.schema';
+import { supabaseAdmin } from '../../../lib/supabaseAdmin';
+import { handleSupabaseError } from '../../../utils/supabaseUtils';
+import { OrderSchema, AdminOrderDetailResponseSchema } from '../../../schemas/order.schema';
+import { enrichOrderWithSignedUrls } from '../../../utils/storageUtils';
+
+const { orderId } = Astro.params;
+let order: ApiOrderResponse | null = null;
+let errorMessage: string | null = null;
+let orderIdNum: number | null = null;
+
+if (!orderId || isNaN(Number(orderId))) {
+    errorMessage = "Invalid Order ID provided in the URL.";
+} else {
+    orderIdNum = Number(orderId);
+    try {
+        // Direct DB call using supabaseAdmin
+        const { data: orderData, error: fetchError } = await supabaseAdmin
+            .from("orders")
+            .select(`*`)
+            .eq("id", orderIdNum)
+            .single();
+        handleSupabaseError(fetchError, `fetch order ${orderIdNum} (admin page)`);
+        if (!orderData) {
+            errorMessage = `Order with ID ${orderIdNum} not found.`;
+        } else {
+            const enriched = await enrichOrderWithSignedUrls(orderData);
+            const parseResult = AdminOrderDetailResponseSchema.safeParse(enriched);
+            if (!parseResult.success) {
+                console.error('Admin Order Detail page response validation failed:', parseResult.error.flatten());
+                throw new Error('Internal error: Invalid data format for order details.');
+            }
+            order = parseResult.data;
+        }
+    } catch (e: any) {
+        console.error(
+            `Admin Detail Page: Error fetching order ${orderIdNum}:`,
+            e,
+        );
+        errorMessage = `An unexpected error occurred while fetching order details: ${e.message}`;
+    }
+}
+---
+
+<AdminLayout title={order ? `Order #${order.id} Details` : "Order Details"}>
+    <a href="/admin/orders">← Back to All Orders</a>
+
+    {errorMessage && <p class="error-message">{errorMessage}</p>}
+
+    {
+        order && orderIdNum && (
+            <div class="order-details-grid">
+                <section class="order-info">
+                    <h2>Order Information</h2>
+                    <p>
+                        <strong>Order ID:</strong> {order.id}
+                    </p>
+                    <p>
+                        <strong>Created At:</strong>{" "}
+                        {formatDate(order.created_at)}
+                    </p>
+                    <p>
+                        <strong>User ID:</strong> {order.user_id}
+                    </p>
+                    <p>
+                        <strong>Orderer Name:</strong> {order.orderer_name}
+                    </p>
+                    <p>
+                        <strong>Phone:</strong> {order.phone || "N/A"}
+                    </p>
+                    <p>
+                        <strong>Package Tier:</strong>{" "}
+                        {order.package_tier || "N/A"}
+                    </p>
+                    <p>
+                        <strong>Is Disadvantaged:</strong>{" "}
+                        {order.is_disadvantaged ? "Yes" : "No"}
+                    </p>
+                    <p>
+                        <strong>Is School:</strong>{" "}
+                        {order.is_school ? "Yes" : "No"}
+                    </p>
+                    <p>
+                        <strong>Certificate:</strong>
+                        {order.certificate_info?.signedUrl ? (
+                            <a
+                                href={order.certificate_info.signedUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                            >
+                                {order.certificate_info.filename ||
+                                    "Certificate File"}
+                            </a>
+                        ) : order.certificate_info?.filename ? (
+                            <span>
+                                {order.certificate_info.filename} (Link Error)
+                            </span>
+                        ) : (
+                            "N/A"
+                        )}
+                    </p>
+                    <p>
+                        <strong>Uploaded Original Files:</strong>
+                    </p>
+                    {order.uploaded_files_info &&
+                    Array.isArray(order.uploaded_files_info) &&
+                    order.uploaded_files_info.length > 0 ? (
+                        <ul>
+                            {order.uploaded_files_info.map((fileInfo, index) =>
+                                fileInfo ? (
+                                    <li>
+                                        {fileInfo.signedUrl ? (
+                                            <a
+                                                href={fileInfo.signedUrl}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                            >
+                                                {fileInfo.filename ||
+                                                    `File ${index + 1}`}
+                                            </a>
+                                        ) : (
+                                            <span>
+                                                {fileInfo.filename ||
+                                                    `File ${index + 1}`}{" "}
+                                                (Link Error)
+                                            </span>
+                                        )}
+                                    </li>
+                                ) : (
+                                    <li>
+                                        File {index + 1} (Error generating link)
+                                    </li>
+                                ),
+                            )}
+                        </ul>
+                    ) : (
+                        <p>
+                            No original files uploaded or links could not be
+                            generated.
+                        </p>
+                    )}
+                    <p>
+                        <strong>Current Translated File:</strong>
+                        <span id="translated-file-link-container">
+                            {order.translated_file_info?.signedUrl ? (
+                                <a
+                                    href={order.translated_file_info.signedUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    data-translated-link
+                                >
+                                    {order.translated_file_info.filename ||
+                                        "Translated File"}
+                                </a>
+                            ) : order.translated_file_info?.filename ? (
+                                <span data-translated-link>
+                                    {order.translated_file_info.filename} (Link
+                                    Error)
+                                </span>
+                            ) : (
+                                <span data-translated-link>None</span>
+                            )}
+                        </span>
+                    </p>
+                </section>
+
+                <section class="order-update">
+                    <h2>Update Order</h2>
+                    <form data-update-form data-order-id={orderIdNum}>
+                        <div class="form-group">
+                            <label for="status">Status:</label>
+                            <select id="status" name="status">
+                                {OrderSchema.shape.status.options.map(option => (
+                                    <option value={option} selected={order.status === option}>{option}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="page_count">Page Count:</label>
+                            <input
+                                type="number"
+                                id="page_count"
+                                name="page_count"
+                                value={order.page_count ?? ""}
+                                min="0"
+                                step="1"
+                            />
+                        </div>
+                        <button type="submit">Update Order</button>
+                        <div data-update-status class="status-message" />
+                    </form>
+                </section>
+
+                <section class="order-upload">
+                    <h2>Upload Translated File</h2>
+                    <form data-upload-form data-order-id={orderIdNum}>
+                        <div class="form-group">
+                            <label for="translated_file">Select File:</label>
+                            <input
+                                type="file"
+                                id="translated_file"
+                                name="translated_file"
+                                required
+                            />
+                        </div>
+                        <button type="submit">Upload Translation</button>
+                        <div data-upload-status class="status-message" />
+                    </form>
+                </section>
+            </div>
+        )
+    }
+</AdminLayout>
+
+<script>
+    import type { SignedFileInfo } from "../../../schemas/order.schema";
+    import {
+        setupOrderUpdateForm,
+        handleTranslationUploadSubmit,
+    } from "../../../scripts/adminOrderHandlers";
+
+    function updateTranslatedFileDisplay(
+        fileInfo: SignedFileInfo | undefined | null,
+    ) {
+        const container = document.getElementById(
+            "translated-file-link-container",
+        );
+        if (!container) return;
+
+        if (fileInfo?.signedUrl && fileInfo.filename) {
+            container.innerHTML = `<a href="${fileInfo.signedUrl}" target="_blank" rel="noopener noreferrer" data-translated-link>${fileInfo.filename}</a>`;
+        } else if (fileInfo?.filename) {
+            container.innerHTML = `<span data-translated-link>${fileInfo.filename} (Link Error)</span>`;
+        } else {
+            container.innerHTML = `<span data-translated-link>None</span>`;
+        }
+    }
+
+    const updateForm = document.querySelector(
+        "[data-update-form]",
+    ) as HTMLFormElement | null;
+    const updateStatusEl = document.querySelector(
+        "[data-update-status]",
+    ) as HTMLElement | null;
+    const updateSubmitButton = updateForm?.querySelector('button[type="submit"]') as HTMLButtonElement | null;
+    const uploadForm = document.querySelector(
+        "[data-upload-form]",
+    ) as HTMLFormElement | null;
+    const uploadStatusEl = document.querySelector(
+        "[data-upload-status]",
+    ) as HTMLElement | null;
+    const fileInput = document.getElementById(
+        "translated_file",
+    ) as HTMLInputElement | null;
+
+    if (updateForm && updateStatusEl && updateSubmitButton) {
+        setupOrderUpdateForm(
+            updateForm,
+            updateStatusEl,
+            updateSubmitButton,
+            updateTranslatedFileDisplay
+        );
+    } else {
+        console.warn("Update form elements (form, status div, or submit button) not found.");
+    }
+
+    if (uploadForm && uploadStatusEl && fileInput) {
+        uploadForm.addEventListener("submit", (event) => {
+            handleTranslationUploadSubmit(
+                event,
+                uploadForm,
+                uploadStatusEl,
+                fileInput,
+                updateTranslatedFileDisplay,
+            );
+        });
+    } else {
+        console.warn(
+            "Upload form elements (form, status div, or file input) not found.",
+        );
+    }
+</script>
+
+<style>
+    button:disabled {
+        background-color: #ccc;
+        cursor: not-allowed;
+    }
+
+    .status-message {
+        margin-top: 1rem;
+        padding: 0.75rem;
+        border-radius: 4px;
+        display: none;
+        font-weight: bold;
+        text-align: center;
+        border: 1px solid transparent;
+    }
+
+    .status-message.status-success {
+        background-color: #d4edda;
+        color: #155724;
+        border-color: #c3e6cb;
+        display: block;
+    }
+
+    .status-message.status-error {
+        background-color: #f8d7da;
+        color: #721c24;
+        border-color: #f5c6cb;
+        display: block;
+    }
+
+    .status-message.status-info {
+        background-color: #e2e3e5;
+        color: #383d41;
+        border-color: #d6d8db;
+        display: block;
+    }
+</style>
+
+```
+---
+
+`src/pages/api/admin/orders/index.ts`:
+```
+import type { APIRoute } from "astro";
+
+import { supabaseAdmin } from "../../../../lib/supabaseAdmin"; 
+import { jsonResponse, jsonErrorResponse } from '../../../../utils/apiResponse';
+import { handleSupabaseError } from "../../../../utils/supabaseUtils"; 
+import type { Order } from '../../../../schemas/order.schema';
+import { OrderSchema } from '../../../../schemas/order.schema';
+
+// NOTE: This endpoint is currently not used by the admin frontend UI, but is kept for future enhancements (e.g., client-side filtering, live updates, or SPA admin tools).
+
+export const GET: APIRoute = async ({ locals }) => {
+    const adminUserId = locals.userId; 
+
+    if (!adminUserId) {
+
+         console.error("API Error (GET /api/admin/orders): Admin user ID not found in locals. Middleware might be misconfigured or bypassed.");
+         return jsonErrorResponse(401, "Unauthorized: Admin session context missing.");
+    }
+    console.log(`API Route: GET /api/admin/orders invoked by verified admin user ${adminUserId}. Using service client for DB query.`);
+
+    try {
+
+        const { data, error } = await supabaseAdmin 
+            .from("orders")
+            .select(`
+                id,
+                created_at,
+                orderer_name,
+                status,
+                package_tier,
+                user_id
+            `) 
+            .order("created_at", { ascending: false }); 
+
+        handleSupabaseError(error, "fetch all orders (admin service)");
+
+        const ResponseOrderSchema = OrderSchema.pick({
+          id: true,
+          created_at: true,
+          orderer_name: true,
+          status: true,
+          package_tier: true,
+          user_id: true,
+        });
+        const parseResult = ResponseOrderSchema.array().safeParse(data);
+        if (!parseResult.success) {
+          console.error('Admin Orders GET response validation failed:', parseResult.error.flatten());
+          return jsonErrorResponse(500, "Internal server error: Invalid data format for orders.");
+        }
+        return jsonResponse(200, parseResult.data || []); 
+
+    } catch (error: any) {
+        console.error(`API Error (GET /api/admin/orders with service client):`, error.message);
+
+        return jsonErrorResponse(500, `Failed to retrieve orders: ${error.message}`);
+    }
+}
+```
+---
+
+`src/pages/api/admin/orders/[orderId].ts`:
+```
+import type { APIRoute } from "astro";
+import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
+import { jsonResponse, jsonErrorResponse } from '../../../../utils/apiResponse';
+import { handleSupabaseError } from "../../../../utils/supabaseUtils";
+import type { Order } from '../../../../schemas/order.schema';
+import { createSignedUrlForPath, enrichOrderWithSignedUrls, type ApiOrderResponse } from "../../../../utils/storageUtils";
+import { z } from "zod";
+import { AdminOrderDetailResponseSchema, UpdateOrderPayloadSchema } from '../../../../schemas/order.schema';
+
+export const GET: APIRoute = async ({ params, locals }) => {
+    const adminUserId = locals.userId;
+    const orderId = params.orderId;
+
+    if (!adminUserId) {
+         console.error(`API Error (GET /api/admin/orders/${orderId}): Admin user ID not found in locals.`);
+         return jsonErrorResponse(401, "Unauthorized: Admin session context missing.");
+    }
+    console.log(`API Route: GET /api/admin/orders/${orderId} invoked by verified admin user ${adminUserId}. Using service client.`);
+
+    const idNumResult = z.coerce.number().int().positive().safeParse(orderId);
+    if (!idNumResult.success) {
+        return jsonErrorResponse(400, "Invalid Order ID.");
+    }
+    const idNum = idNumResult.data;
+
+    try {
+
+        const { data: orderData, error: fetchError } = await supabaseAdmin
+            .from("orders")
+            .select(`*`) 
+            .eq("id", idNum)
+            .single(); 
+
+        handleSupabaseError(fetchError, `fetch order ${idNum} (admin service)`);
+
+        if (!orderData) {
+
+            return jsonErrorResponse(404, `Order with ID ${idNum} not found.`);
+        }
+
+        console.log(`API Route: Fetched order ${idNum}. Enriching with signed URLs...`);
+
+        const responseData: ApiOrderResponse = await enrichOrderWithSignedUrls(orderData as Order);
+
+        const parseResult = AdminOrderDetailResponseSchema.safeParse(responseData);
+        if (!parseResult.success) {
+            console.error('Admin Order Detail GET response validation failed:', parseResult.error.flatten());
+            return jsonErrorResponse(500, "Internal server error: Invalid data format for order details.");
+        }
+        return jsonResponse(200, parseResult.data);
+
+    } catch (error: any) {
+        console.error(`API Error (GET /api/admin/orders/${orderId} with service client):`, error.message);
+
+         if (error.code === 'PGRST116' || error.message.includes('fetch order')) { 
+             return jsonErrorResponse(404, `Order with ID ${idNum} not found.`);
+         }
+         if (error.message.startsWith("Permission Denied:")) {
+             return jsonErrorResponse(403, "Forbidden: Check RLS policies for admin access.");
+         }
+        return jsonErrorResponse(500, `Failed to retrieve order ${idNum}: ${error.message}`);
+    }
+}
+
+export const PATCH: APIRoute = async ({ request, params, locals }) => {
+     const adminUserId = locals.userId;
+     const orderId = params.orderId;
+
+     if (!adminUserId) {
+         console.error(`API Error (PATCH /api/admin/orders/${orderId}): Admin user ID not found in locals.`);
+         return jsonErrorResponse(401, "Unauthorized: Admin session context missing.");
+     }
+     console.log(`API Route: PATCH /api/admin/orders/${orderId} invoked by verified admin user ${adminUserId}. Using service client.`);
+
+    const idNumResult = z.coerce.number().int().positive().safeParse(orderId);
+    if (!idNumResult.success) {
+        return jsonErrorResponse(400, "Invalid Order ID.");
+    }
+    const idNum = idNumResult.data;
+
+    let payload;
+    try {
+        payload = await request.json();
+        const result = UpdateOrderPayloadSchema.safeParse(payload);
+        if (!result.success) {
+            return jsonErrorResponse(400, result.error.flatten());
+        }
+        payload = result.data;
+    } catch (e) {
+        return jsonErrorResponse(400, "Invalid JSON body.");
+    }
+
+    const updateData: import('../../../../schemas/order.schema').UpdateOrderPayload = { ...payload };
+    const hasValidUpdate = Object.keys(updateData).length > 0;
+    if (!hasValidUpdate) {
+        return jsonErrorResponse(400, "No valid fields provided for update.");
+    }
+
+    let autoAdvancedStatusOverride: Order['status'] | null = null;
+    // --- Auto-advance status if page_count is set for the first time ---
+    if (updateData.page_count && updateData.page_count > 0) {
+        const { data: currentOrderData, error: fetchCurrentError } = await supabaseAdmin
+            .from("orders")
+            .select("status, page_count")
+            .eq("id", idNum)
+            .single();
+        handleSupabaseError(fetchCurrentError, `fetch current order for status auto-advance`);
+        if (currentOrderData &&
+            (currentOrderData.page_count === null || currentOrderData.page_count === 0) &&
+            currentOrderData.status === "Pending Page Count"
+        ) {
+            autoAdvancedStatusOverride = "Pending Package Confirmation";
+        }
+    }
+    // If auto-advancing, override any status sent from the form for this specific transition
+    if (autoAdvancedStatusOverride) {
+        updateData.status = autoAdvancedStatusOverride;
+        console.log(`API Route: Auto-advancing status to "${updateData.status}" for order ${idNum} due to page count update.`);
+    } else if (payload.status === null) {
+        updateData.status = null;
+    } else if (payload.status) {
+        updateData.status = payload.status;
+    }
+
+    console.log(`API Route: Updating order ${idNum} using admin service client with data:`, updateData);
+
+    try {
+        const { data: updatedOrderData, error: updateError } = await supabaseAdmin
+            .from("orders")
+            .update(updateData)
+            .eq("id", idNum)
+            .select()
+            .single();
+
+        handleSupabaseError(updateError, `update order ${idNum} (admin service)`);
+
+        if (!updatedOrderData) {
+             console.error(`API Logic Error: Order ${idNum} not found after PATCH attempt or update failed silently.`);
+             return jsonErrorResponse(404, `Order with ID ${idNum} could not be found or updated.`);
+        }
+
+        console.log(`API Route: Updated order ${idNum}. Enriching response with signed URLs...`);
+
+        const responseData: ApiOrderResponse = await enrichOrderWithSignedUrls(updatedOrderData as Order);
+
+        const parseResult = AdminOrderDetailResponseSchema.safeParse(responseData);
+        if (!parseResult.success) {
+            console.error('Admin Order Detail PATCH response validation failed:', parseResult.error.flatten());
+        }
+
+        console.log(`API Route: Updated order ${idNum} successfully. Returning enhanced data.`);
+        return jsonResponse(200, responseData);
+
+    } catch (error: any) {
+        console.error(`API Error (PATCH /api/admin/orders/${orderId} with service client):`, error.message);
+        if (error.code === 'PGRST116' || error.message.includes('update order')) {
+             return jsonErrorResponse(404, `Order with ID ${idNum} not found when attempting update.`);
+        }
+         if (error.message.startsWith("Permission Denied:")) {
+             return jsonErrorResponse(403, "Forbidden: Check RLS policies for admin update access.");
+         }
+        return jsonErrorResponse(500, `Failed to update order ${idNum}: ${error.message}`);
+    }
+};
+```
+---
+
+`src/pages/api/admin/orders/[orderId]/upload.ts`:
+```
+import type { APIRoute } from "astro";
+import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
+import { jsonResponse, jsonErrorResponse } from '../../../../../utils/apiResponse';
+import { handleSupabaseError } from "../../../../../utils/supabaseUtils";
+import { sanitizeFilename, extractFilename } from "../../../../../utils/filenameUtils"; 
+import { generateStoragePath, createSignedUrlForPath, enrichOrderWithSignedUrls, type ApiOrderResponse } from "../../../../../utils/storageUtils"; 
+import { STORAGE_BUCKET } from "../../../../../utils/constants"; 
+import type { Order } from '../../../../../schemas/order.schema';
+import { z } from "zod";
+import { AdminOrderDetailResponseSchema } from '../../../../../schemas/order.schema';
+
+export const POST: APIRoute = async ({ request, params, locals }) => {
+    const adminUserId = locals.userId;
+    const orderId = params.orderId;
+
+    if (!adminUserId) {
+        console.error(`API Error (POST /api/admin/orders/${orderId}/upload): Admin user ID not found in locals.`);
+        return jsonErrorResponse(401, "Unauthorized: Admin session context missing.");
+    }
+    console.log(`API Route: POST /api/admin/orders/${orderId}/upload invoked by verified admin user ${adminUserId}. Using service client.`);
+
+    const idNumResult = z.coerce.number().int().positive().safeParse(orderId);
+    if (!idNumResult.success) {
+        return jsonErrorResponse(400, "Invalid Order ID.");
+    }
+    const idNum = idNumResult.data;
+
+    let originalUserId: string;
+    try {
+        console.log(`API Route: Fetching original user ID for order ${idNum} using service client...`);
+        const { data: orderData, error: fetchError } = await supabaseAdmin
+            .from("orders")
+            .select("user_id") 
+            .eq("id", idNum)
+            .maybeSingle(); 
+
+        handleSupabaseError(fetchError, `fetch user_id for order ${idNum} (admin service upload)`);
+
+        if (!orderData?.user_id) {
+
+            return jsonErrorResponse(404, `Order with ID ${idNum} not found or has no associated user.`);
+        }
+        originalUserId = orderData.user_id;
+        console.log(`API Route: Found original user ID ${originalUserId} for order ${idNum}.`);
+
+    } catch (error: any) {
+         console.error(`API Error (fetching user_id for order ${idNum} with service client):`, error.message);
+         if (error.code === 'PGRST116') { 
+             return jsonErrorResponse(404, `Order with ID ${idNum} not found.`);
+         }
+          if (error.message.startsWith("Permission Denied:")) {
+             return jsonErrorResponse(403, "Forbidden: Check RLS policies for admin access.");
+         }
+         return jsonErrorResponse(500, `Failed to retrieve order details: ${error.message}`);
+    }
+
+    let file: File | null = null;
+    let originalFilename = 'untitled_translation';
+    try {
+        const formData = await request.formData();
+        const fileEntry = formData.get("translated_file"); 
+
+        if (!fileEntry || typeof fileEntry === 'string' || !(fileEntry instanceof File) || fileEntry.size === 0) {
+             return jsonErrorResponse(400, "Missing or invalid 'translated_file' in form data. Ensure the file input name matches and a file is selected.");
+        }
+        file = fileEntry;
+        originalFilename = file.name;
+        console.log(`API Route: Received file '${originalFilename}' for upload.`);
+    } catch (error: any) {
+         console.error("API Error: Failed to parse FormData.", error);
+         return jsonErrorResponse(400, "Bad Request: Invalid form data.");
+    }
+
+    const filePath = generateStoragePath({
+        userId: originalUserId, 
+        filename: originalFilename,
+        type: 'translation',
+        orderId: idNum 
+    });
+
+    console.log(`API Route: Uploading translated file via service client to bucket '${STORAGE_BUCKET}' at path: ${filePath}`);
+    try {
+         const { error: uploadError } = await supabaseAdmin.storage
+            .from(STORAGE_BUCKET)
+            .upload(filePath, file!); 
+
+        if (uploadError) {
+             console.error(`API Storage Error: Failed to upload ${originalFilename} via service client. Code: ${uploadError.name}, Message: ${uploadError.message}`);
+
+             throw new Error(`Server Error: Failed to upload file '${originalFilename}'. ${uploadError.message}`);
+        }
+        console.log(`API Route: Successfully uploaded ${originalFilename} via service client to ${filePath}`);
+
+    } catch (error: any) {
+
+         console.error(`API Error (uploading file ${filePath} via service client):`, error.message);
+         return jsonErrorResponse(500, `Failed to upload file: ${error.message || 'An unexpected storage error occurred.'}`);
+    }
+
+    console.log(`API Route: Updating order ${idNum} via service client with translated_file_url: ${filePath}`);
+    let updatedOrderData: Order | null = null;
+    try {
+        const { data, error: updateError } = await supabaseAdmin
+            .from("orders")
+            .update({ translated_file_url: filePath }) 
+            .eq("id", idNum)
+            .select() 
+            .single(); 
+
+        handleSupabaseError(updateError, `update order ${idNum} with translated file URL (admin service)`);
+
+        if (!data) {
+
+             console.error(`API Logic Error: Order ${idNum} not found via service client after successful update attempt.`);
+
+             return jsonErrorResponse(500, `Order with ID ${idNum} could not be retrieved after update.`);
+        }
+        updatedOrderData = data;
+        console.log(`API Route: Successfully updated order ${idNum} with translation URL via service client.`);
+
+    } catch (error: any) {
+         console.error(`API Error (updating order ${idNum} with URL via service client):`, error.message);
+
+         console.warn(`Potentially orphaned file uploaded to ${filePath} due to database update failure.`);
+         let statusCode = 500;
+         if (error.code === 'PGRST116') statusCode = 404; 
+         if (error.message.startsWith("Permission Denied:")) statusCode = 403;
+         return jsonErrorResponse(statusCode, `Failed to update order with file URL: ${error.message}`);
+    }
+
+    console.log(`API Route: Enriching final response for order ${idNum} with signed URLs...`);
+    const responseData: ApiOrderResponse = await enrichOrderWithSignedUrls(updatedOrderData as Order);
+
+    const parseResult = AdminOrderDetailResponseSchema.safeParse(responseData);
+    if (!parseResult.success) {
+        console.error('Admin Order Upload POST response validation failed:', parseResult.error.flatten());
+    }
+
+    return jsonResponse(200, responseData);
+};
+```
+---
+
+`src/pages/api/auth/anonymous.ts`:
+```
+import type { APIRoute } from "astro";
+import { supabase } from "../../../lib/supabase";
+import { setAuthCookies } from '../../../utils/auth';
+import { jsonResponse, jsonErrorResponse } from '../../../utils/apiResponse'; 
+
+import { ACCESS_TOKEN, REFRESH_TOKEN } from '../../../utils/constants';
+
+export const POST: APIRoute = async ({ cookies }) => {
+
+  const existingAccessToken = cookies.get(ACCESS_TOKEN);
+  const existingRefreshToken = cookies.get(REFRESH_TOKEN);
+
+  if (existingAccessToken?.value && existingRefreshToken?.value) {
+     console.log("Anonymous Route: Found existing tokens. Verifying session...");
+     const { data: { user } } = await supabase.auth.getUser(existingAccessToken.value);
+     if (user) {
+        console.log(`Anonymous Route: Existing session is valid for user ${user.id}. Skipping new anonymous sign-in.`);
+
+        return jsonResponse(200, { message: "Already authenticated anonymously", userId: user.id }); 
+     } else {
+        console.log("Anonymous Route: Existing session token is invalid or expired. Proceeding with sign-in.");
+     }
+  } else {
+      console.log("Anonymous Route: No existing auth tokens found or incomplete pair.");
+  }
+
+  console.log("Anonymous Route: Attempting server-side anonymous sign-in...");
+  const { data, error } = await supabase.auth.signInAnonymously();
+
+  if (error || !data?.session || !data?.user) {
+    console.error("Anonymous Route: Server-side anonymous sign-in error:", error);
+
+    return jsonErrorResponse(500, error?.message || "Anonymous sign-in failed"); 
+  }
+
+  console.log(`Anonymous Route: Server-side anonymous sign-in successful for user ${data.user.id}. Setting cookies.`);
+
+  setAuthCookies(cookies, data.session);
+
+  return jsonResponse(200, { message: "Anonymous sign-in successful", userId: data.user.id }); 
+};
+```
+---
+
+`src/pages/api/auth/callback.ts`:
+```
+import type { APIRoute } from "astro";
+import { supabase } from "../../../lib/supabase";
+import { setAuthCookies } from '../../../utils/auth';
+import { jsonErrorResponse } from '../../../utils/apiResponse'; 
+
+export const GET: APIRoute = async ({ url, cookies, redirect }) => {
+  const authCode = url.searchParams.get("code");
+
+  if (!authCode) {
+
+    return jsonErrorResponse(400, "No code provided"); 
+  }
+
+  const { data, error } = await supabase.auth.exchangeCodeForSession(authCode);
+
+  if (error) {
+    console.error("Auth Callback Error:", error.message);
+
+    return jsonErrorResponse(500, error.message); 
+  }
+
+  if (!data.session) {
+      console.error("Auth Callback Error: No session data returned after code exchange.");
+
+      return jsonErrorResponse(500, "Failed to establish session."); 
+  }
+
+  // --- Anonymous to Permanent Account Linking Logic ---
+  // Check if there was an active anonymous session before OAuth
+  const { data: currentSessionData, error: sessionError } = await supabase.auth.getSession();
+  const currentSession = currentSessionData?.session;
+  const isAnonymous = currentSession?.user?.is_anonymous === true;
+
+  let finalSession = data.session;
+
+  if (isAnonymous) {
+    try {
+      // Attempt to link the OAuth identity to the anonymous user
+      const { error: linkError } = await supabase.auth.linkIdentity({ provider: 'google' });
+      if (linkError) {
+        if (linkError.message && linkError.message.toLowerCase().includes('already registered')) {
+          await supabase.auth.signOut();
+          finalSession = data.session;
+        } else {
+          console.error('linkIdentity error:', linkError.message);
+          finalSession = data.session;
+        }
+      } else {
+        // Linking succeeded, fetch the upgraded session
+        const { data: upgradedSessionData } = await supabase.auth.getSession();
+        if (upgradedSessionData?.session) {
+          finalSession = upgradedSessionData.session;
+        }
+      }
+    } catch (err) {
+      console.error('Exception during linkIdentity:', err);
+      finalSession = data.session;
+    }
+  }
+
+  setAuthCookies(cookies, finalSession);
+
+  return redirect("/dashboard");
+};
+```
+---
+
+`src/pages/api/auth/signin.ts`:
+```
+import type { APIRoute } from "astro";
+import { supabase } from "../../../lib/supabase";
+import type { Provider } from "@supabase/supabase-js";
+import { CALLBACK_PATH } from "../../../utils/constants";
+import { jsonErrorResponse } from '../../../utils/apiResponse';
+
+export const POST: APIRoute = async ({ request, cookies, redirect, url }) => {
+  const formData = await request.formData();
+  const provider = formData.get("provider")?.toString();
+
+  const redirectUrl = `${url.origin}${CALLBACK_PATH}`;
+
+  if (provider === "google") {
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: provider as Provider,
+      options: {
+        redirectTo: redirectUrl,
+      },
+    });
+
+    if (error) {
+      console.error("OAuth Error:", error.message);
+      return jsonErrorResponse(500, error.message);
+    }
+
+    return redirect(data.url);
+  }
+  return jsonErrorResponse(400, "Invalid sign-in method");
+};
+```
+---
+
+`src/pages/api/auth/signout.ts`:
+```
+import type { APIRoute } from "astro";
+import { deleteAuthCookies } from '../../../utils/auth';
+
+export const GET: APIRoute = async ({ cookies, redirect }) => {
+
+  deleteAuthCookies(cookies);
+
+  return redirect("/signin");
+};
+```
+---
+
+`src/pages/api/guestbook/index.ts`:
+```
+// src/pages/api/guestbook/index.ts
+import type { APIRoute } from "astro";
+import { getAllGuestbookEntries, createGuestbookEntry } from "../../../services/guestbook.service";
+import type { GuestbookEntry } from '../../../schemas/guestbook.schema';
+import { jsonResponse, jsonErrorResponse } from '../../../utils/apiResponse';
+import { GuestbookEntrySchema } from '../../../schemas/guestbook.schema';
+
+export const GET: APIRoute = async () => {
+  console.log("API Route: GET /api/guestbook invoked.");
+  try {
+    const entries = await getAllGuestbookEntries();
+    // Validate response data (optional but recommended)
+    const parseResult = GuestbookEntrySchema.array().safeParse(entries);
+    if (!parseResult.success) {
+      console.error('Guestbook GET response validation failed:', parseResult.error.flatten());
+      // Optionally still return the data, or return an error if strict
+      // return jsonErrorResponse(500, 'Internal server error: Invalid response data.');
+    }
+    return jsonResponse(200, entries);
+  } catch (error: any) {
+    console.error("API Error (GET /api/guestbook):", error.message);
+    return jsonErrorResponse(500, "Failed to retrieve guestbook entries.");
+  }
+};
+
+export const POST: APIRoute = async ({ request, locals }) => {
+  console.log("API Route: POST /api/guestbook invoked.");
+
+  const userId = locals.userId;
+  if (!userId) {
+      console.log("API Error: Unauthorized access attempt to POST /api/guestbook.");
+      return jsonErrorResponse(401, "Unauthorized: Authentication required.");
+  }
+  console.log(`API Route: User authenticated. User ID: ${userId}. Ready to create guestbook entry.`);
+
+  try {
+    let validated;
+    try {
+      const body = await request.json();
+      // Validate input using Zod
+      const result = GuestbookEntrySchema.pick({ name: true, message: true }).safeParse(body);
+      if (!result.success) {
+        return jsonErrorResponse(400, result.error.flatten());
+      }
+      validated = result.data;
+    } catch (e) {
+      console.log("API Error: Invalid JSON body received.");
+      return jsonErrorResponse(400, "Bad Request: Invalid JSON body.");
+    }
+
+    const newEntry = await createGuestbookEntry(validated);
+
+    console.log("API Route: Guestbook entry created successfully.");
+    return jsonResponse(201, newEntry);
+
+  } catch (error: any) {
+    console.error("API Error (POST /api/guestbook):", error.message);
+
+    if (error.message.startsWith("Validation Error:")) {
+         return jsonErrorResponse(400, error.message);
+    }
+    if (error.message.startsWith("Permission Denied:")) {
+         return jsonErrorResponse(403, error.message);
+    }
+     if (error.message.startsWith("Database Error:")) {
+         return jsonErrorResponse(500, "Failed to submit guestbook entry due to a server error.");
+     }
+    return jsonErrorResponse(500, "An unexpected error occurred while submitting the guestbook entry.");
+  }
+};
+```
+---
+
+`src/pages/api/orders/create.ts`:
+```
+import type { APIRoute, APIContext } from "astro";
+import { supabase } from "../../../lib/supabase"; 
+import { createOrder } from "../../../services/order.service";
+import { verifyTurnstileToken } from '../../../utils/turnstile';
+import { jsonResponse, jsonErrorResponse } from '../../../utils/apiResponse';
+import { sanitizeFilename } from "../../../utils/filenameUtils"; 
+import { generateStoragePath } from "../../../utils/storageUtils"; 
+import { PACKAGE_MAP, STORAGE_BUCKET } from "../../../utils/constants"; 
+
+interface ValidatedFormData {
+    ordererName: string;
+    phone?: string;
+    packageSliderValue: string; 
+    isDisadvantaged: boolean;
+    isSchool: boolean;
+    turnstileToken: string;
+    orderFiles: File[];
+    certificateFile: File | null;
+}
+
+async function _parseAndValidateFormData(formData: FormData): Promise<ValidatedFormData | Response> {
+    try {
+        const orderer_name = formData.get("orderer_name")?.toString().trim() ?? '';
+        const phone = formData.get("phone")?.toString().trim() || undefined;
+        const package_tier_value = formData.get("package_tier_value")?.toString() ?? '';
+        const is_disadvantaged = formData.get("is_disadvantaged") === "on";
+        const is_school = formData.get("is_school") === "on";
+        const turnstile_token = formData.get("cf-turnstile-response")?.toString() ?? '';
+        const orderFiles = formData.getAll("order_files") as File[];
+        const certificateFile = formData.get("certificate_file") as File | null;
+
+        const { CreateOrderInputSchema } = await import("../../../schemas/order.schema");
+        const result = CreateOrderInputSchema.safeParse({
+            orderer_name,
+            phone,
+            package_tier_value,
+            is_disadvantaged,
+            is_school,
+            turnstile_token,
+        });
+        if (!result.success) {
+            return jsonErrorResponse(400, result.error.flatten());
+        }
+
+        const validOrderFiles = orderFiles.filter(f => f && f instanceof File && f.size > 0);
+        if (validOrderFiles.length === 0) return jsonErrorResponse(400, "Bad Request: At least one main document file is required.");
+
+        const validCertificateFile = (certificateFile && certificateFile instanceof File && certificateFile.size > 0) ? certificateFile : null;
+        if (is_disadvantaged && !validCertificateFile) return jsonErrorResponse(400, "Bad Request: Certificate of indigence is required when economic disadvantage is checked.");
+        if (!is_disadvantaged && validCertificateFile) console.warn("API Warning: Certificate file provided but disadvantage checkbox not checked. Ignoring certificate.");
+
+        return {
+            ordererName: orderer_name,
+            phone,
+            packageSliderValue: package_tier_value,
+            isDisadvantaged: is_disadvantaged,
+            isSchool: is_school,
+            turnstileToken: turnstile_token,
+            orderFiles: validOrderFiles,
+            certificateFile: is_disadvantaged ? validCertificateFile : null
+        };
+    } catch (error: any) {
+        console.error("API Error: Unexpected error during FormData parsing.", error);
+        return jsonErrorResponse(500, "Server Error: Failed to process form data.");
+    }
+}
+
+interface UploadResult {
+    uploadedFilePaths: string[];
+    certificatePath?: string;
+}
+
+async function _uploadFilesToStorage(
+    userId: string,
+    orderFiles: File[],
+    certificateFile: File | null
+): Promise<UploadResult> {
+    const uploadedFilePaths: string[] = [];
+    let certificatePath: string | undefined = undefined;
+
+    console.log(`API Route: Uploading ${orderFiles.length} main document(s) for user ${userId}...`);
+    try {
+        const uploadPromises = orderFiles.map(async (file) => {
+
+            const filePath = generateStoragePath({
+                userId: userId,
+                filename: file.name,
+                type: 'original'
+            });
+
+            console.log(`API Route: Uploading ${file.name} to bucket '${STORAGE_BUCKET}' at path ${filePath}`);
+
+            const { error: uploadError } = await supabase.storage
+                .from(STORAGE_BUCKET)
+                .upload(filePath, file);
+
+            if (uploadError) {
+                console.error(`API Error: Failed to upload ${file.name}. Error:`, uploadError);
+
+                throw new Error(`Server Error: Failed to upload file '${file.name}'. ${uploadError.message}`);
+            }
+            console.log(`API Route: Successfully uploaded ${file.name} to ${filePath}`);
+            return filePath; 
+        });
+
+        const mainFilePaths = await Promise.all(uploadPromises);
+        uploadedFilePaths.push(...mainFilePaths);
+
+        if (certificateFile) {
+            console.log("API Route: Uploading certificate file...");
+
+            const certFilePath = generateStoragePath({
+                userId: userId,
+                filename: certificateFile.name,
+                type: 'certificate'
+            });
+
+            console.log(`API Route: Uploading ${certificateFile.name} to bucket '${STORAGE_BUCKET}' at path ${certFilePath}`);
+
+            const { error: certUploadError } = await supabase.storage
+                .from(STORAGE_BUCKET)
+                .upload(certFilePath, certificateFile);
+
+            if (certUploadError) {
+                console.error(`API Error: Failed to upload certificate ${certificateFile.name}. Error:`, certUploadError);
+                throw new Error(`Server Error: Failed to upload certificate file '${certificateFile.name}'. ${certUploadError.message}`);
+            }
+            certificatePath = certFilePath;
+            console.log(`API Route: Successfully uploaded certificate ${certificateFile.name}`);
+        }
+
+        console.log("API Route: All required file uploads completed successfully.");
+        return { uploadedFilePaths, certificatePath };
+
+    } catch (error: any) {
+
+        console.error("API Error: Error during file upload process.", error);
+
+        if (error.message.startsWith("Server Error:")) {
+            throw error; 
+        } else {
+            throw new Error(`Server Error: An unexpected error occurred during file processing. ${error.message}`);
+        }
+    }
+}
+
+export const POST: APIRoute = async ({ request, locals, clientAddress }: APIContext) => {
+    console.log("API Route: POST /api/orders/create invoked.");
+
+    const userId = locals.userId;
+    if (!userId) {
+
+        console.warn("API Warning: User ID missing in locals for protected route /api/orders/create.");
+        return jsonErrorResponse(401, "Unauthorized.");
+    }
+    console.log(`API Route: User authenticated via middleware. User ID: ${userId}`);
+
+    let formData: FormData;
+    try {
+        formData = await request.formData();
+    } catch (error: any) {
+        console.error("API Error: Failed to parse FormData.", error);
+        return jsonErrorResponse(400, "Bad Request: Invalid form data.");
+    }
+
+    const validationResult = await _parseAndValidateFormData(formData);
+    if (validationResult instanceof Response) {
+        return validationResult; 
+    }
+
+    const {
+        ordererName, phone, packageSliderValue, isDisadvantaged, isSchool,
+        turnstileToken, orderFiles, certificateFile
+    } = validationResult;
+
+    const packageTier = PACKAGE_MAP[packageSliderValue];
+
+    try {
+        console.log("API Route: Verifying Turnstile token...");
+
+        const forwardedIp = request.headers.get('x-nf-client-connection-ip'); 
+        const cfConnectingIp = request.headers.get('cf-connecting-ip'); 
+        const remoteIp = forwardedIp || cfConnectingIp || clientAddress; 
+        if (!remoteIp) console.warn("API Warning: Could not determine client IP for Turnstile verification.");
+
+        await verifyTurnstileToken(turnstileToken, remoteIp);
+        console.log("API Route: Turnstile verification successful.");
+    } catch (error: any) {
+        console.warn("API Route: Turnstile verification failed.", error.message);
+
+        if (error.message.startsWith("Server configuration error")) {
+            return jsonErrorResponse(500, error.message); 
+        }
+
+        return jsonErrorResponse(403, `CAPTCHA verification failed: ${error.message}`);
+    }
+
+    let uploadResult: UploadResult;
+    try {
+
+        uploadResult = await _uploadFilesToStorage(userId, orderFiles, certificateFile);
+    } catch (error: any) {
+
+        return jsonErrorResponse(500, error.message);
+    }
+
+    try {
+        console.log(`API Route: Calling createOrder service for user ${userId}...`);
+
+        const orderInput = {
+            user_id: userId,
+            orderer_name: ordererName,
+            phone,
+            package_tier: packageTier,
+            is_disadvantaged: isDisadvantaged,
+            is_school: isSchool,
+            uploaded_file_urls: uploadResult.uploadedFilePaths,
+            certificate_url: uploadResult.certificatePath,
+            page_count: undefined,
+            total_price: undefined
+        };
+        const newOrder = await createOrder(orderInput);
+
+        console.log("API Route: Order created successfully in database:", newOrder.id);
+        return jsonResponse(201, newOrder); 
+
+    } catch (error: any) {
+
+        console.error("API Error (POST /api/orders/create - Service Call):", error.message);
+
+        if (error.message.startsWith("Validation Error:")) {
+
+            console.error("Service Validation Error:", error.message);
+            return jsonErrorResponse(400, `Bad Request: ${error.message}`); 
+        }
+        if (error.message.startsWith("Database Error:") || error.message.startsWith("Permission Denied:")) {
+
+            console.error("Database or Permission Error during order creation:", error.message);
+
+             return jsonErrorResponse(500, `Failed to save order details after uploading files. Please contact support. ${error.message}`);
+        }
+
+        return jsonErrorResponse(500, `An unexpected server error occurred while saving the order: ${error.message}`);
+    }
+};
+```
+---
+
+`src/pages/api/orders/index.ts`:
+```
+import type { APIRoute } from "astro";
+import { supabase } from "../../../lib/supabase";
+import { OrderSchema } from "../../../schemas/order.schema";
+import { jsonResponse, jsonErrorResponse } from '../../../utils/apiResponse';
+
+export const GET: APIRoute = async ({ locals }) => {
+  const userId = locals.userId;
+  if (!userId) {
+    return jsonErrorResponse(401, "Unauthorized: User not logged in.");
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("orders")
+      .select("id, orderer_name, status, created_at, page_count, package_tier, total_price, estimated_delivery_date")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      return jsonErrorResponse(500, error.message);
+    }
+
+    // Validate response data (optional but recommended)
+    const parseResult = OrderSchema.pick({
+      id: true,
+      orderer_name: true,
+      status: true,
+      created_at: true,
+      page_count: true,
+      package_tier: true,
+      total_price: true,
+      estimated_delivery_date: true,
+    }).array().safeParse(data);
+    if (!parseResult.success) {
+      return jsonErrorResponse(500, 'Internal server error: Invalid data format for orders.');
+    }
+
+    return jsonResponse(200, parseResult.data);
+  } catch (e: any) {
+    return jsonErrorResponse(500, e.message || 'Unknown error');
+  }
+};
+
+```
+---
+
+`src/pages/api/orders/[orderId].ts`:
+```
+import type { APIRoute } from "astro";
+import { supabase } from "../../../lib/supabase";
+import { OrderSchema, UserOrderDetailSchema } from "../../../schemas/order.schema";
+import { jsonResponse, jsonErrorResponse } from '../../../utils/apiResponse';
+import { z } from "zod";
+import { PACKAGES_DETAILS_MAP } from '../../../utils/constants';
+import { enrichUserOrderWithSignedUrls } from '../../../utils/supabaseUtils';
+
+// GET /api/orders/[orderId]
+export const GET: APIRoute = async ({ params, locals }) => {
+  const userId = locals.userId;
+  const orderId = params.orderId;
+  if (!userId) return jsonErrorResponse(401, "Unauthorized: User not logged in.");
+  const idNumResult = z.coerce.number().int().positive().safeParse(orderId);
+  if (!idNumResult.success) return jsonErrorResponse(400, "Invalid Order ID.");
+  const idNum = idNumResult.data;
+
+  const { data, error } = await supabase
+    .from("orders")
+    .select("*")
+    .eq("id", idNum)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) return jsonErrorResponse(500, error.message);
+  if (!data) return jsonErrorResponse(404, "Order not found.");
+  
+  // Parse and validate base order data
+  const parseResult = OrderSchema.safeParse(data);
+  if (!parseResult.success) return jsonErrorResponse(500, 'Internal server error: Invalid order data.');
+  
+  // Enrich order with signed URLs
+  const enrichedOrder = await enrichUserOrderWithSignedUrls(parseResult.data);
+  
+  // Validate enriched order structure
+  const enrichedResult = UserOrderDetailSchema.safeParse(enrichedOrder);
+  if (!enrichedResult.success) return jsonErrorResponse(500, 'Internal server error: Invalid enriched order data.');
+  
+  return jsonResponse(200, enrichedResult.data);
+};
+
+// PATCH /api/orders/[orderId]
+export const PATCH: APIRoute = async ({ request, params, locals }) => {
+  const userId = locals.userId;
+  const orderId = params.orderId;
+  if (!userId) return jsonErrorResponse(401, "Unauthorized: User not logged in.");
+  const idNumResult = z.coerce.number().int().positive().safeParse(orderId);
+  if (!idNumResult.success) return jsonErrorResponse(400, "Invalid Order ID.");
+  const idNum = idNumResult.data;
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonErrorResponse(400, "Invalid JSON body.");
+  }
+  const bodySchema = z.object({ packageIdentifier: z.string() });
+  const bodyResult = bodySchema.safeParse(body);
+  if (!bodyResult.success) return jsonErrorResponse(400, bodyResult.error.flatten());
+  const { packageIdentifier } = bodyResult.data;
+
+  // Fetch current order
+  const { data: order, error } = await supabase
+    .from("orders")
+    .select("*")
+    .eq("id", idNum)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) return jsonErrorResponse(500, error.message);
+  if (!order) return jsonErrorResponse(404, "Order not found.");
+  if (!order.page_count || order.page_count <= 0) return jsonErrorResponse(409, "Page count not yet confirmed by admin.");
+  if (order.status !== "Pending Package Confirmation") return jsonErrorResponse(409, "Order is not awaiting package confirmation.");
+
+  const pkg = PACKAGES_DETAILS_MAP[packageIdentifier];
+  if (!pkg) return jsonErrorResponse(400, "Invalid package selected.");
+  const newTotalPrice = order.page_count * pkg.pricePerPage;
+  const now = new Date();
+  const estimatedDelivery = new Date(now.getTime() + pkg.turnaroundDays * 24 * 60 * 60 * 1000);
+
+  const updatePayload = {
+    package_tier: pkg.name,
+    total_price: newTotalPrice,
+    estimated_delivery_date: estimatedDelivery.toISOString(),
+    status: "Pending Payment"
+  };
+  const { data: updated, error: updateError } = await supabase
+    .from("orders")
+    .update(updatePayload)
+    .eq("id", idNum)
+    .eq("user_id", userId)
+    .select()
+    .maybeSingle();
+  if (updateError) return jsonErrorResponse(500, updateError.message);
+  if (!updated) return jsonErrorResponse(500, "Order update failed.");
+  
+  // Validate the updated order data
+  const parseResult = OrderSchema.safeParse(updated);
+  if (!parseResult.success) {
+      console.error('PATCH response validation failed:', parseResult.error.flatten());
+      return jsonErrorResponse(500, 'Internal server error: Invalid data format');
+  }
+  
+  return jsonResponse(200, parseResult.data);
+};
+
+```
+---
+
+`src/pages/dashboard/my-orders.astro`:
+```
+---
+import Layout from "../../layout/Layout.astro";
+const title = "My Orders";
+---
+
+<Layout title={title}>
+  <main>
+    <h1>{title}</h1>
+    <section>
+      <div id="orders-list-loading">Loading your orders...</div>
+      <table id="orders-table" style="display:none;">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Orderer Name</th>
+            <th>Status</th>
+            <th>Created</th>
+            <th>Page Count</th>
+            <th>Package</th>
+            <th>Total Price</th>
+            <th>Estimated Delivery</th>
+            <th>Details</th>
+          </tr>
+        </thead>
+        <tbody id="orders-table-body"></tbody>
+      </table>
+      <div id="orders-list-error" style="color:red;"></div>
+    </section>
+  </main>
+  <script type="module">
+    async function fetchOrders() {
+      const loading = document.getElementById('orders-list-loading');
+      const table = document.getElementById('orders-table');
+      const tbody = document.getElementById('orders-table-body');
+      const errorDiv = document.getElementById('orders-list-error');
+      loading.style.display = '';
+      table.style.display = 'none';
+      errorDiv.textContent = '';
+      try {
+        const res = await fetch('/api/orders');
+        if (!res.ok) throw new Error(await res.text());
+        const orders = await res.json();
+        if (!Array.isArray(orders) || orders.length === 0) {
+          loading.textContent = 'No orders found.';
+          return;
+        }
+        loading.style.display = 'none';
+        table.style.display = '';
+        tbody.innerHTML = '';
+        for (const order of orders) {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${order.id}</td>
+            <td>${order.orderer_name}</td>
+            <td>${order.status}</td>
+            <td>${new Date(order.created_at).toLocaleString()}</td>
+            <td>${order.page_count ?? ''}</td>
+            <td>${order.package_tier ?? ''}</td>
+            <td>${order.total_price ? (order.total_price).toLocaleString('id-ID', { style: 'currency', currency: 'IDR' }) : ''}</td>
+            <td>${order.estimated_delivery_date ? new Date(order.estimated_delivery_date).toLocaleDateString() : ''}</td>
+            <td><a href="/dashboard/my-orders/${order.id}">Details</a></td>
+          `;
+          tbody.appendChild(tr);
+        }
+      } catch (e) {
+        loading.style.display = 'none';
+        errorDiv.textContent = e.message || 'Failed to load orders.';
+      }
+    }
+    fetchOrders();
+  </script>
+</Layout>
+
+```
+---
+
+`src/pages/dashboard/my-orders/[orderId].astro`:
+```
+---
+import Layout from "../../../layout/Layout.astro";
+import { PACKAGES_DETAILS } from '../../../utils/constants';
+const title = "Order Details";
+const packages = PACKAGES_DETAILS;
+---
+<Layout title={title}>
+  <main id="order-detail-main-content" data-packages={JSON.stringify(packages)}>
+    <h1>{title}</h1>
+    <section id="order-detail-section">
+      <div id="order-detail-loading">Loading order details...</div>
+      <div id="order-detail-error" style="color:red;"></div>
+      <div id="order-detail-content" style="display:none;"></div>
+    </section>
+  </main>
+  <script type="module">
+    // Get the element holding the data
+    const mainContentElement = document.getElementById('order-detail-main-content');
+    // Parse the data attribute
+    const packages = JSON.parse(mainContentElement.dataset.packages || '[]');
+    const orderId = window.location.pathname.split('/').pop();
+    async function fetchOrder() {
+      const loading = document.getElementById('order-detail-loading');
+      const errorDiv = document.getElementById('order-detail-error');
+      const contentDiv = document.getElementById('order-detail-content');
+      loading.style.display = '';
+      contentDiv.style.display = 'none';
+      errorDiv.textContent = '';
+      try {
+        const res = await fetch(`/api/orders/${orderId}`);
+        if (!res.ok) throw new Error(await res.text());
+        const order = await res.json();
+        loading.style.display = 'none';
+        contentDiv.style.display = '';
+        renderOrder(order);
+      } catch (e) {
+        loading.style.display = 'none';
+        errorDiv.textContent = e.message || 'Failed to load order.';
+      }
+    }
+    function renderOrder(order) {
+      const contentDiv = document.getElementById('order-detail-content');
+      let html = `<p><strong>Order ID:</strong> ${order.id}</p>
+        <p><strong>Orderer Name:</strong> ${order.orderer_name}</p>
+        <p><strong>Status:</strong> ${order.status}</p>
+        <p><strong>Created At:</strong> ${new Date(order.created_at).toLocaleString()}</p>
+        <p><strong>Page Count:</strong> ${order.page_count ?? 'N/A'}</p>`;
+      if (order.status === 'Pending Page Count' || !order.page_count) {
+        html += `<p>Admin is reviewing your documents to confirm the page count. Package selection will be available soon.</p>`;
+      } else if (order.status === 'Pending Package Confirmation' && order.page_count > 0) {
+        html += `<p><strong>Page Count:</strong> ${order.page_count}</p>`;
+        html += `<form id="package-select-form">
+          <fieldset>
+            <legend>Select a Package</legend>`;
+        for (const pkg of packages) {
+          html += `<label style="display:block;margin-bottom:0.5em;">
+            <input type="radio" name="package" value="${pkg.id}" ${order.package_tier === pkg.name ? 'checked' : ''} />
+            <strong>${pkg.name}</strong> - IDR ${(pkg.pricePerPage).toLocaleString('id-ID')} per page, ${pkg.turnaroundDays} day(s)
+            <br/><small>${pkg.description || ''}</small>
+          </label>`;
+        }
+        html += `</fieldset>
+          <div id="package-summary"></div>
+          <button type="submit" id="confirm-package-btn">Confirm Package and Proceed to Payment</button>
+        </form>`;
+      } else {
+        html += `<p><strong>Package:</strong> ${order.package_tier ?? ''}</p>
+          <p><strong>Total Price:</strong> ${order.total_price ? (order.total_price).toLocaleString('id-ID', { style: 'currency', currency: 'IDR' }) : ''}</p>
+          <p><strong>Estimated Delivery:</strong> ${order.estimated_delivery_date ? new Date(order.estimated_delivery_date).toLocaleDateString() : ''}</p>`;
+      }
+      contentDiv.innerHTML = html;
+      if (order.status === 'Pending Package Confirmation' && order.page_count > 0) setupPackageForm(order);
+    }
+    function setupPackageForm(order) {
+      const form = document.getElementById('package-select-form');
+      const summaryDiv = document.getElementById('package-summary');
+      let selectedId = null;
+      form.addEventListener('change', (e) => {
+        if (e.target.name === 'package') {
+          selectedId = e.target.value;
+          updateSummary();
+        }
+      });
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (!selectedId) {
+          summaryDiv.textContent = 'Please select a package.';
+          return;
+        }
+        document.getElementById('confirm-package-btn').disabled = true;
+        summaryDiv.textContent = 'Submitting...';
+        try {
+          const res = await fetch(`/api/orders/${order.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ packageIdentifier: selectedId })
+          });
+          if (!res.ok) throw new Error(await res.text());
+          summaryDiv.textContent = 'Package confirmed! Please proceed to payment.';
+          fetchOrder();
+        } catch (err) {
+          summaryDiv.textContent = err.message || 'Failed to confirm package.';
+        } finally {
+          document.getElementById('confirm-package-btn').disabled = false;
+        }
+      });
+      function updateSummary() {
+        const pkg = packages.find(p => p.id === selectedId);
+        if (!pkg) { summaryDiv.textContent = ''; return; }
+        const total = order.page_count * pkg.pricePerPage;
+        const delivery = new Date(Date.now() + pkg.turnaroundDays * 24 * 60 * 60 * 1000);
+        summaryDiv.innerHTML = `<strong>Selected Package:</strong> ${pkg.name}<br/>
+          <strong>Total Price:</strong> IDR ${total.toLocaleString('id-ID')}<br/>
+          <strong>Estimated Delivery:</strong> ${delivery.toLocaleDateString()}`;
+      }
+    }
+    fetchOrder();
+  </script>
+</Layout>
+
+```
+---
+
+`src/schemas/guestbook.schema.ts`:
+```
+import { z } from "zod";
+
+export const GuestbookEntrySchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  message: z.string().min(1, "Message is required"),
+});
+
+export type GuestbookEntry = z.infer<typeof GuestbookEntrySchema>;
+
+```
+---
+
+`src/schemas/order.schema.ts`:
+```
+import { z } from "zod";
+
+export const OrderSchema = z.object({
+  id: z.number().int().positive(),
+  user_id: z.string(),
+  orderer_name: z.string().min(1, "Orderer name is required"),
+  status: z.enum([
+    "pending", // legacy: will be replaced by new statuses below
+    "processing", // legacy
+    "completed", // legacy
+    "cancelled", // legacy
+    "Pending Page Count",
+    "Pending Package Confirmation",
+    "Pending Payment",
+    "In Progress",
+    "Delivered",
+    "Rejected"
+  ]),
+  created_at: z.string(),
+  phone: z.string().nullable().optional(),
+  package_tier: z.string().nullable().optional(),
+  page_count: z.number().int().nonnegative().nullable().optional(),
+  total_price: z.number().nonnegative().nullable().optional(),
+  uploaded_file_urls: z.array(z.string()).nullable().optional(),
+  is_disadvantaged: z.boolean(),
+  is_school: z.boolean(),
+  certificate_url: z.string().nullable().optional(),
+  translated_file_url: z.string().nullable().optional(),
+  estimated_delivery_date: z.string().datetime({ offset: true }).nullable().optional(),
+});
+
+export const CreateOrderInputSchema = z.object({
+  orderer_name: z.string().min(1, "Orderer name is required"),
+  phone: z.string().optional(),
+  package_tier_value: z.string().min(1, "Package tier is required"),
+  is_disadvantaged: z.boolean(),
+  is_school: z.boolean(),
+  turnstile_token: z.string().min(1, "CAPTCHA token is required"),
+});
+
+export const SignedFileInfoSchema = z.object({
+  path: z.string(),
+  filename: z.string().nullable(),
+  signedUrl: z.string().nullable(),
+});
+
+export const AdminOrderDetailResponseSchema = OrderSchema.extend({
+  uploaded_files_info: z.array(SignedFileInfoSchema.nullable()).optional(),
+  certificate_info: SignedFileInfoSchema.nullable().optional(),
+  translated_file_info: SignedFileInfoSchema.nullable().optional(),
+});
+
+export const UserOrderDetailSchema = OrderSchema.extend({
+  uploaded_files_info: z.array(z.object({ url: z.string() })),
+  certificate_info: z.object({ url: z.string() }).nullable()
+});
+
+export const UpdateOrderPayloadSchema = z.object({
+  status: z.enum([
+    "pending",
+    "processing",
+    "completed",
+    "cancelled",
+    "Pending Page Count",
+    "Pending Package Confirmation",
+    "Pending Payment",
+    "In Progress",
+    "Delivered",
+    "Rejected"
+  ]).nullable().optional(),
+  page_count: z.number().int().nonnegative().nullable().optional(),
+  package_tier: z.string().nullable().optional(),
+  estimated_delivery_date: z.string().datetime({ offset: true }).nullable().optional(),
+}).partial();
+
+export type Order = z.infer<typeof OrderSchema>;
+export type CreateOrderInput = z.infer<typeof CreateOrderInputSchema>;
+export type SignedFileInfo = z.infer<typeof SignedFileInfoSchema>;
+export type AdminOrderDetailResponse = z.infer<typeof AdminOrderDetailResponseSchema>;
+export type UpdateOrderPayload = z.infer<typeof UpdateOrderPayloadSchema>;
+
+```
+---
+
+`src/scripts/adminOrderHandlers.ts`:
+```
+import type { Order } from '../schemas/order.schema';
+import type { SignedFileInfo } from '../schemas/order.schema';
+import type { ApiOrderResponse as ClientApiOrderResponse } from "../utils/storageUtils";
+import { displayStatus } from "./uiUtils";
+import { UpdateOrderPayloadSchema } from '../schemas/order.schema';
+import { setupFormSubmitListener } from './formHandler';
+import type { FormSubmitOptions } from '../types/types';
+
+type UpdatePayload = {
+    status?: Order['status'] | null;
+    page_count?: number | null;
+    package_tier?: string | null;
+    estimated_delivery_date?: string | null;
+};
+
+export async function handleTranslationUploadSubmit(
+    event: SubmitEvent,
+    formElement: HTMLFormElement,
+    statusElement: HTMLElement | null,
+    fileInputElement: HTMLInputElement | null,
+    updateTranslatedFileDisplay: (fileInfo: SignedFileInfo | undefined | null) => void
+): Promise<void> {
+    event.preventDefault();
+    if (!statusElement || !fileInputElement) return;
+
+    displayStatus(statusElement, 'Uploading...', 'info');
+    const orderId = formElement.dataset.orderId;
+    if (!orderId) {
+        displayStatus(statusElement, 'Error: Missing order ID.', 'error');
+        return;
+    }
+    if (!fileInputElement.files || fileInputElement.files.length === 0 || fileInputElement.files[0].size === 0) {
+         displayStatus(statusElement, 'Please select a file to upload.', 'error');
+         return;
+    }
+
+    const formData = new FormData(formElement);
+
+    try {
+        const response = await fetch(`/api/admin/orders/${orderId}/upload`, {
+            method: 'POST',
+            body: formData,
+        });
+
+        const result: ClientApiOrderResponse = await response.json();
+        if (!response.ok) throw new Error((result as any).error || `HTTP error ${response.status}`);
+
+        displayStatus(statusElement, 'File uploaded and order updated!', 'success');
+
+        updateTranslatedFileDisplay(result.translated_file_info);
+
+        formElement.reset();
+
+    } catch (error) {
+        console.error('Upload Error:', error);
+        const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred during upload.';
+        displayStatus(statusElement, `Upload failed: ${errorMessage}`, 'error');
+    }
+}
+
+export function setupOrderUpdateForm(
+    formElement: HTMLFormElement,
+    statusElement: HTMLElement | null,
+    submitButton: HTMLButtonElement | null,
+    updateTranslatedFileDisplay: (fileInfo: SignedFileInfo | undefined | null) => void
+) {
+    const orderId = formElement.dataset.orderId;
+    if (!orderId) {
+        console.error("Cannot setup update form listener: Missing data-order-id attribute on the form.");
+        if (statusElement) {
+            displayStatus(statusElement, "Form setup error: Missing Order ID.", "error");
+        }
+        return;
+    }
+
+    function preparePayload(): UpdatePayload | null {
+        const formData = new FormData(formElement);
+        const payload: UpdatePayload = {};
+        const status = formData.get('status');
+        const pageCountRaw = formData.get('page_count');
+
+        if (status !== null && status !== undefined) {
+            if (status === "") {
+                payload.status = null;
+            } else {
+                // Accept any status from the schema
+                payload.status = status as Order['status'];
+            }
+        }
+        if (pageCountRaw !== null && pageCountRaw !== '') {
+            const pageCountNum = parseInt(pageCountRaw as string, 10);
+            if (!isNaN(pageCountNum) && pageCountNum >= 0) payload.page_count = pageCountNum;
+            else {
+                if (statusElement) displayStatus(statusElement, 'Invalid page count (must be a non-negative number).', 'error');
+                return null;
+            }
+        } else if (pageCountRaw === '') {
+            payload.page_count = null;
+        }
+
+        if (Object.keys(payload).length === 0) {
+            if (statusElement) displayStatus(statusElement, 'No changes detected to update.', 'info');
+            return null;
+        }
+
+        const zodResult = UpdateOrderPayloadSchema.safeParse(payload);
+        if (!zodResult.success) {
+            const errorMessages = Object.values(zodResult.error.flatten().fieldErrors).flat().join(' ');
+            if (statusElement) displayStatus(statusElement, `Validation error: ${errorMessages}`, 'error');
+            return null;
+        }
+
+        console.log('Prepared update payload:', payload);
+        return payload;
+    }
+
+    function onSuccess(result: ClientApiOrderResponse, formElement: HTMLFormElement) {
+        if (statusElement) {
+             displayStatus(statusElement, 'Order updated successfully!', 'success');
+        }
+        if (result.status !== undefined) (document.getElementById('status') as HTMLSelectElement).value = result.status ?? '';
+        if (result.page_count !== undefined) (document.getElementById('page_count') as HTMLInputElement).value = result.page_count?.toString() ?? '';
+        updateTranslatedFileDisplay(result.translated_file_info);
+    }
+
+    function onError(error: Error, statusElement: HTMLElement | null) {
+         console.error('Update Error (via generic handler):', error);
+         if (statusElement) {
+             const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred during update.';
+             displayStatus(statusElement, `Update failed: ${errorMessage}`, 'error');
+         }
+    }
+
+    const options: FormSubmitOptions = {
+        formElement,
+        statusElement,
+        submitButton,
+        preparePayload,
+        onSuccess,
+        onError,
+        endpoint: `/api/admin/orders/${orderId}`,
+        method: 'PATCH',
+        submittingText: 'Updating...'
+    };
+
+    setupFormSubmitListener(options);
+}
+```
+---
+
+`src/scripts/formHandler.ts`:
+```
+import type { JsonFormSubmitOptions, FormDataSubmitOptions } from '../types/types';
+
+export async function submitJsonData(options: JsonFormSubmitOptions): Promise<void> {
+
+    const {
+        formElement,
+        statusElement,
+        submitButton,
+        preparePayload,
+        onSuccess,
+        onError,
+        endpoint = formElement.action,
+        method = formElement.method || 'POST',
+        submittingText = 'Submitting...',
+    } = options;
+
+    if (submitButton && !submitButton.dataset.originalText) {
+        submitButton.dataset.originalText = submitButton.textContent || 'Submit';
+    }
+    const originalButtonText = submitButton?.dataset.originalText || 'Submit';
+
+    if (statusElement) {
+        statusElement.textContent = '';
+        statusElement.style.color = 'inherit';
+    }
+
+    const payload = preparePayload();
+    if (payload === null) {
+        if (submitButton && submitButton.disabled) {
+            submitButton.disabled = false;
+            submitButton.textContent = originalButtonText;
+        }
+        return;
+    }
+
+    if (submitButton) {
+        submitButton.disabled = true;
+        submitButton.textContent = submittingText;
+    }
+
+    try {
+        const response = await fetch(endpoint, {
+            method: method.toUpperCase(),
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+            },
+            body: JSON.stringify(payload),
+        });
+
+        let data: any;
+        try {
+            data = await response.json();
+        } catch (jsonError) {
+            if (!response.ok) {
+                throw new Error(`HTTP error! Status: ${response.status}, Response not JSON.`);
+            }
+            console.warn("Response was OK but not valid JSON.");
+            data = null;
+        }
+
+        if (!response.ok) {
+            const errorMessage = data?.error || `HTTP error! Status: ${response.status}`;
+            throw new Error(errorMessage);
+        }
+
+        onSuccess(data, formElement);
+
+    } catch (error: any) {
+        console.error('JSON Form submission error:', error);
+        onError(error, statusElement);
+    } finally {
+        if (submitButton) {
+            submitButton.disabled = false;
+            submitButton.textContent = originalButtonText;
+        }
+    }
+}
+
+export function setupFormSubmitListener(options: JsonFormSubmitOptions): void {
+    const { formElement } = options;
+    if (!formElement) {
+        console.error('Form submission listener requires a formElement.');
+        return;
+    }
+
+    formElement.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        await submitJsonData(options); 
+    });
+}
+
+export async function submitFormDataWithFiles(options: FormDataSubmitOptions): Promise<void> {
+    const {
+        formElement,
+        statusElement,
+        submitButton,
+        onSuccess,
+        onError,
+        submittingText = 'Submitting...',
+    } = options;
+
+    if (!formElement || !submitButton || !statusElement) {
+        console.error("submitFormDataWithFiles requires formElement, submitButton, and statusElement.");
+        if (statusElement) {
+            statusElement.textContent = "Form submission setup error.";
+            statusElement.style.color = "red";
+        }
+        return;
+    }
+
+    if (!submitButton.dataset.originalText) {
+        submitButton.dataset.originalText = submitButton.textContent || 'Submit';
+    }
+    const originalButtonText = submitButton.dataset.originalText;
+
+    statusElement.textContent = '';
+    statusElement.style.color = 'inherit';
+
+    submitButton.disabled = true;
+    submitButton.textContent = submittingText;
+    statusElement.textContent = "Submitting (this may take a moment)..."; 
+
+    const apiEndpoint = formElement.action;
+    if (!apiEndpoint) {
+        onError(new Error("Form action attribute is missing or empty."), statusElement);
+        submitButton.disabled = false;
+        submitButton.textContent = originalButtonText;
+        return;
+    }
+
+    const formData = new FormData(formElement);
+
+    try {
+        console.log(`Submitting FormData to API endpoint: ${apiEndpoint}`);
+
+        const response = await fetch(apiEndpoint, {
+            method: "POST", 
+            body: formData,
+
+        });
+
+        let responseData: any = null;
+        try {
+            const contentType = response.headers.get("content-type");
+            if (contentType && contentType.includes("application/json")) {
+                responseData = await response.json();
+            } else if (!response.ok) {
+                const textResponse = await response.text();
+                console.error(`Server error response (non-JSON): Status ${response.status}, Body: ${textResponse.substring(0, 500)}...`);
+                throw new Error(`Server error: Status ${response.status}. Check server logs for details.`);
+            } else {
+                console.warn(`Response from ${apiEndpoint} was OK (${response.status}) but not JSON.`);
+
+            }
+        } catch (parseError: any) {
+            console.error("Error processing server response:", parseError);
+            if (!response.ok) {
+                throw new Error(`Failed to process server error response: Status ${response.status}`);
+            } else {
+
+                console.warn(`Successfully submitted but failed to parse response: ${parseError.message}`);
+
+            }
+        }
+
+        if (!response.ok) {
+            const errorMessage = responseData?.error || `Submission failed with status: ${response.status}`;
+            throw new Error(errorMessage);
+        }
+
+        console.log("FormData submitted successfully via helper.");
+        onSuccess(responseData, formElement); 
+
+    } catch (error: any) {
+        console.error("FormData submission process error:", error);
+        onError(error, statusElement); 
+    } finally {
+        console.log("Resetting form UI state and Turnstile widget.");
+        resetTurnstileWidget(formElement); 
+
+        if (submitButton) {
+            submitButton.disabled = false;
+            submitButton.textContent = originalButtonText;
+        }
+    }
+}
+
+export function resetTurnstileWidget(formElement: HTMLFormElement | null): void {
+
+    if (!formElement) return;
+    try {
+        const widgetElement = formElement.querySelector<HTMLElement>('.cf-turnstile');
+        if (widgetElement && typeof (window as any).turnstile?.reset === 'function') {
+            (window as any).turnstile.reset(widgetElement);
+            console.log("Turnstile widget reset.");
+        } else if (widgetElement) {
+            console.warn("Turnstile widget found, but reset function is not available on window.turnstile.");
+        }
+    } catch (e) {
+        console.warn("Could not reset Turnstile widget", e);
+    }
+}
+```
+---
+
+`src/scripts/orderFormClient.ts`:
+```
+import { submitFormDataWithFiles } from "./formHandler"; 
+import type { FormDataSubmitOptions } from "../types/types"; 
+
+const form = document.getElementById("order-form") as HTMLFormElement | null;
+const orderFilesInput = document.getElementById("order-files") as HTMLInputElement | null;
+const nameInput = document.getElementById("orderer-name") as HTMLInputElement | null;
+const phoneInput = document.getElementById("phone") as HTMLInputElement | null;
+const packageSlider = document.getElementById("package-slider") as HTMLInputElement | null;
+const packageDisplay = document.getElementById("selected-package-display") as HTMLSpanElement | null;
+const disadvantageCheckbox = document.getElementById("is-disadvantaged") as HTMLInputElement | null;
+const certificateContainer = document.getElementById("certificate-container") as HTMLDivElement | null;
+const certificateInput = document.getElementById("certificate-file") as HTMLInputElement | null;
+const schoolCheckbox = document.getElementById("is-school") as HTMLInputElement | null;
+const submitButton = document.getElementById("submit-order-button") as HTMLButtonElement | null;
+const statusDiv = document.getElementById("order-status") as HTMLElement | null;
+
+let packageMap: { [key: string]: string } = { "1": "Basic", "2": "Standard", "3": "Premium" };
+if (form?.dataset.packageMap) {
+    try {
+        packageMap = JSON.parse(form.dataset.packageMap);
+    } catch (e) {
+        console.error("Failed to parse package map data from form attribute:", e);
+    }
+} else {
+    console.warn("Package map data attribute not found on form. Using default map.");
+}
+
+if (
+    form &&
+    orderFilesInput &&
+    nameInput &&
+    phoneInput &&
+    packageSlider &&
+    packageDisplay &&
+    disadvantageCheckbox &&
+    certificateContainer &&
+    certificateInput &&
+    schoolCheckbox &&
+    submitButton &&
+    statusDiv
+) {
+
+    packageSlider.addEventListener("input", () => {
+        const selectedValue = packageSlider.value;
+        packageDisplay.textContent = packageMap[selectedValue] || "Unknown";
+    });
+    packageDisplay.textContent = packageMap[packageSlider.value] || "Unknown";
+
+    disadvantageCheckbox.addEventListener("change", () => {
+        if (disadvantageCheckbox.checked) {
+            certificateContainer.classList.remove("hidden");
+            certificateInput.required = true;
+        } else {
+            certificateContainer.classList.add("hidden");
+            certificateInput.required = false;
+            certificateInput.value = "";
+        }
+    });
+
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault(); 
+
+        // --- Turnstile presence check ---
+        const turnstileWidget = document.querySelector('.cf-turnstile');
+        if (!turnstileWidget) {
+            statusDiv.textContent = "Verification failed to load. Please check your internet connection and refresh the page.";
+            statusDiv.className = 'status-message status-error';
+            return;
+        }
+
+        statusDiv.textContent = '';
+        statusDiv.style.color = 'inherit';
+        statusDiv.style.removeProperty('background-color');
+        statusDiv.style.removeProperty('border');
+        statusDiv.className = 'status-message'; 
+
+        if (!orderFilesInput.files || orderFilesInput.files.length === 0 || Array.from(orderFilesInput.files).every(f => f.size === 0)) {
+            statusDiv.textContent = "Please select at least one document file.";
+            statusDiv.style.color = "red"; statusDiv.classList.add('status-error');
+            orderFilesInput.focus();
+            return;
+        }
+        if (disadvantageCheckbox.checked && (!certificateInput.files || certificateInput.files.length === 0 || certificateInput.files[0].size === 0)) {
+            statusDiv.textContent = "Please upload proof for economic disadvantage.";
+            statusDiv.style.color = "red"; statusDiv.classList.add('status-error');
+            certificateInput.focus();
+            return;
+        }
+        if (!nameInput.value.trim()) {
+            statusDiv.textContent = "Please enter your name.";
+            statusDiv.style.color = "red"; statusDiv.classList.add('status-error');
+            nameInput.focus();
+            return;
+        }
+        if (!phoneInput.value.trim()) {
+            statusDiv.textContent = "Please enter your phone number.";
+            statusDiv.style.color = "red"; statusDiv.classList.add('status-error');
+            phoneInput.focus();
+            return;
+        }
+
+        if (!submitButton.dataset.originalText) {
+            submitButton.dataset.originalText = submitButton.textContent || 'Submit Order';
+        }
+        const originalButtonText = submitButton.dataset.originalText;
+
+        submitButton.disabled = true;
+        submitButton.textContent = "Initializing...";
+        statusDiv.textContent = "Ensuring session...";
+        statusDiv.classList.add('status-info'); 
+
+        try {
+            console.log("Attempting anonymous auth...");
+            const authResponse = await fetch('/api/auth/anonymous', { method: "POST" });
+            if (!authResponse.ok) {
+                let errorMsg = `Authentication setup failed (${authResponse.status})`;
+                try {
+                    const errorData = await authResponse.json();
+                    errorMsg = errorData?.error || errorMsg;
+                } catch (e) {  }
+                throw new Error(errorMsg); 
+            }
+            console.log("Anonymous session ensured successfully.");
+
+            statusDiv.textContent = "";
+            statusDiv.className = 'status-message';
+
+        } catch (authError: any) {
+            console.error("Anonymous auth error:", authError);
+            statusDiv.textContent = `Error: ${authError.message || "Could not initialize session."}`;
+            statusDiv.style.color = "red"; 
+            statusDiv.className = 'status-message status-error'; 
+            submitButton.disabled = false; 
+            submitButton.textContent = originalButtonText;
+            return; 
+        }
+
+        const onSuccessHandler = (data: any, formElement: HTMLFormElement) => {
+            statusDiv.textContent = `Order submitted successfully! Order ID: ${data?.id || "[Unknown ID]"}`;
+            statusDiv.className = 'status-message status-success'; 
+            formElement.reset();
+
+            if (packageSlider && packageDisplay) {
+                packageSlider.value = "1";
+                packageDisplay.textContent = packageMap[packageSlider.value] || "Unknown";
+            }
+            if (certificateContainer && certificateInput) {
+                certificateContainer.classList.add("hidden");
+                certificateInput.required = false;
+            }
+
+            setTimeout(() => {
+                if (statusDiv) {
+                    statusDiv.textContent = "";
+                    statusDiv.className = 'status-message'; 
+                }
+            }, 8000);
+        };
+
+        const onErrorHandler = (error: Error, statusElement: HTMLElement | null) => {
+             if (!statusElement) return;
+             let displayMessage = "An unexpected error occurred during submission.";
+
+            if (error.message) {
+                 if (error.message.includes("CAPTCHA verification failed")) {
+                     displayMessage = "CAPTCHA verification failed. Please try again.";
+                 } else if (error.message.includes("Bad Request:")) {
+                     displayMessage = error.message.replace("Bad Request: ", "");
+                 } else if (error.message.includes("Failed to upload file")) {
+                     displayMessage = "Error uploading file. Please ensure files are valid and try again.";
+                 } else if (error.message.includes("Server error:")) {
+                     displayMessage = "Order submission failed due to a server issue. Please try again later or contact support.";
+                 } else if (error.message.startsWith("Submission failed with status:")) {
+                      displayMessage = "Order submission failed. Please check your input and try again.";
+                 } else {
+
+                     displayMessage = error.message;
+                 }
+            }
+            statusElement.textContent = `Error: ${displayMessage}`;
+            statusElement.className = 'status-message status-error'; 
+        };
+
+        const options: FormDataSubmitOptions = {
+            formElement: form,
+            statusElement: statusDiv,
+            submitButton: submitButton,
+            onSuccess: onSuccessHandler,
+            onError: onErrorHandler,
+            submittingText: "Uploading & Submitting...", 
+        };
+
+        await submitFormDataWithFiles(options);
+
+    });
+
+} else {
+
+    console.error("Could not find all required elements for the order form script.", {  });
+    const errorDisplay = statusDiv || document.getElementById("order-status");
+    if (errorDisplay) {
+        errorDisplay.textContent = "Error initializing the order form. Please refresh the page or contact support.";
+        errorDisplay.style.color = "red";
+        errorDisplay.className = 'status-message status-error';
+    }
+}
+```
+---
+
+`src/scripts/uiUtils.ts`:
+```
+export function displayStatus(
+    element: HTMLElement | null,
+    message: string | null,
+    type: 'success' | 'error' | 'info' | 'clear' = 'info'
+): void {
+    if (!element) return;
+
+    if (!message || type === 'clear') {
+        element.textContent = '';
+        element.className = 'status-message'; 
+        element.style.display = 'none';
+        return;
+    }
+
+    element.textContent = message;
+
+    element.className = 'status-message'; 
+    if (type === 'success') {
+        element.classList.add('status-success');
+    } else if (type === 'error') {
+        element.classList.add('status-error');
+    } else {
+
+    }
+
+    element.style.display = 'block'; 
+}
+```
+---
+
+`src/services/guestbook.service.ts`:
+```
+import { supabase } from '../lib/supabase'; 
+import { GuestbookEntrySchema, type GuestbookEntry } from '../schemas/guestbook.schema';
+import { handleSupabaseError } from '../utils/supabaseUtils'; 
+
+export async function getAllGuestbookEntries(): Promise<GuestbookEntry[]> {
+  const operationContext = "fetch guestbook entries";
+  console.log(`Service: ${operationContext}...`);
+
+  const { data, error } = await supabase
+    .from("guestbook")
+    .select("name, message") 
+    .order("created_at", { ascending: true }); 
+
+  handleSupabaseError(error, operationContext); 
+
+  // Validate with Zod before returning
+  const result = GuestbookEntrySchema.array().safeParse(data);
+  if (!result.success) {
+    console.error('Service: Guestbook entries response validation failed:', result.error.flatten());
+    return [];
+  }
+
+  console.log("Service: Fetched entries successfully.");
+  return result.data;
+}
+
+export async function createGuestbookEntry(entry: Pick<GuestbookEntry, 'name' | 'message'>): Promise<GuestbookEntry> {
+  const trimmedName = entry.name.trim();
+  const trimmedMessage = entry.message.trim();
+  const operationContext = "create guestbook entry";
+
+  console.log(`Service: Creating guestbook entry for '${trimmedName}'...`);
+  const { data, error } = await supabase
+    .from("guestbook")
+    .insert({ name: trimmedName, message: trimmedMessage })
+    .select("name, message") 
+    .single(); 
+
+  handleSupabaseError(error, operationContext); 
+
+  if (!data) {
+    throw new Error(`Database Error: Failed to ${operationContext}: No data returned after insert.`);
+  }
+
+  // Validate with Zod before returning
+  const result = GuestbookEntrySchema.safeParse(data);
+  if (!result.success) {
+    console.error('Service: Guestbook entry response validation failed:', result.error.flatten());
+    throw new Error('Database Error: Invalid guestbook entry returned.');
+  }
+
+  console.log("Service: Created entry successfully.");
+  return result.data;
+}
+```
+---
+
+`src/services/order.service.ts`:
+```
+import { supabase } from '../lib/supabase';
+import { OrderSchema, type Order } from '../schemas/order.schema';
+import { handleSupabaseError } from '../utils/supabaseUtils';
+
+export async function createOrder(
+    input: Omit<Order, 'id' | 'created_at' | 'status'>
+): Promise<Order> {
+    // Input is already validated by Zod in API layer
+    const operationContext = "create order";
+    const insertData: Partial<Order> & { user_id: string; orderer_name: string; status: Order['status']; is_disadvantaged: boolean; is_school: boolean; } = {
+      ...input,
+      status: "Pending Page Count",
+    };
+
+    console.log("Service: Inserting data:", insertData); 
+
+    const { data, error } = await supabase
+      .from("orders")
+      .insert(insertData)
+      .select() 
+      .single(); 
+
+    handleSupabaseError(error, operationContext);
+
+    if (!data) {
+      throw new Error(`Database Error: Failed to ${operationContext}: No data returned after insert.`);
+    }
+
+    // Validate with Zod before returning
+    const result = OrderSchema.safeParse(data);
+    if (!result.success) {
+      console.error('Service: Order response validation failed:', result.error.flatten());
+      throw new Error('Database Error: Invalid order returned.');
+    }
+
+    console.log("Service: Created order successfully with ID:", result.data.id);
+    return result.data;
+}
+```
+---
+
+`src/types/types.ts`:
+```
+export interface JsonFormSubmitOptions {
+  formElement: HTMLFormElement;
+  statusElement: HTMLElement | null;
+  submitButton: HTMLButtonElement | null;
+
+  preparePayload: () => Record<string, any> | null; 
+
+  onSuccess: (data: any, formElement: HTMLFormElement) => void;
+  onError: (error: Error, statusElement: HTMLElement | null) => void;
+
+  endpoint?: string; 
+  method?: string; 
+
+  submittingText?: string; 
+  submitText?: string; 
+}
+
+export interface FormDataSubmitOptions {
+  formElement: HTMLFormElement; 
+  statusElement: HTMLElement | null;
+  submitButton: HTMLButtonElement | null;
+
+  onSuccess: (data: any, formElement: HTMLFormElement) => void;
+  onError: (error: Error, statusElement: HTMLElement | null) => void;
+
+  submittingText?: string; 
+  submitText?: string; 
+}
+
+export type FormSubmitOptions = JsonFormSubmitOptions;
+```
+---
+
+`src/utils/apiResponse.ts`:
+```
+import type { APIContext } from 'astro';
+import type { typeToFlattenedError } from 'zod';
+
+const commonHeaders = {
+    'Content-Type': 'application/json',
+};
+
+export function jsonResponse(status: number, data: any): Response {
+    return new Response(JSON.stringify(data), {
+        status: status,
+        headers: commonHeaders,
+    });
+}
+
+export function jsonErrorResponse(status: number, messageOrZodError: string | typeToFlattenedError<any, string>): Response {
+    let errorObj: any;
+    if (typeof messageOrZodError === 'string') {
+        errorObj = { error: messageOrZodError };
+    } else {
+        errorObj = { error: 'Validation error', details: messageOrZodError };
+    }
+    return new Response(JSON.stringify(errorObj), {
+        status: status,
+        headers: commonHeaders,
+    });
+}
+```
+---
+
+`src/utils/auth.ts`:
+```
+import type { Session } from '@supabase/supabase-js';
+import type { AstroCookies } from 'astro';
+import { ACCESS_TOKEN, REFRESH_TOKEN } from './constants';
+
+export function setAuthCookies(cookies: AstroCookies, session: Session | null | undefined): void {
+
+  if (!session?.access_token || !session?.refresh_token) {
+    console.warn("setAuthCookies called without a valid session or tokens. Skipping cookie setting.");
+    return;
+  }
+
+  const { access_token, refresh_token, expires_in } = session;
+
+  const baseCookieOptions = {
+    path: "/",
+    sameSite: "lax" as const,
+    secure: import.meta.env.PROD,
+    httpOnly: true,
+  };
+
+  const rawAccessTokenMaxAge = (expires_in != null && expires_in > 0) ? expires_in : 3600;
+  const accessTokenMaxAge = Math.floor(rawAccessTokenMaxAge);
+
+  const refreshTokenMaxAge = 60 * 60 * 24 * 7;
+
+  if (accessTokenMaxAge <= 0) {
+    console.warn(`Calculated accessTokenMaxAge is invalid (${accessTokenMaxAge}). Using default 3600.`);
+  }
+
+  console.log(`Setting auth cookies. Access token maxAge: ${accessTokenMaxAge}s`);
+
+  cookies.set(ACCESS_TOKEN, access_token, {
+    ...baseCookieOptions,
+    maxAge: accessTokenMaxAge,
+  });
+
+  cookies.set(REFRESH_TOKEN, refresh_token, {
+    ...baseCookieOptions,
+    maxAge: refreshTokenMaxAge,
+  });
+}
+
+export function deleteAuthCookies(cookies: AstroCookies): void {
+  console.log("Deleting auth cookies.");
+
+  cookies.delete(ACCESS_TOKEN, { path: "/" });
+  cookies.delete(REFRESH_TOKEN, { path: "/" });
+}
+```
+---
+
+`src/utils/constants.ts`:
+```
+export const ACCESS_TOKEN = "sb-access-token";
+export const REFRESH_TOKEN = "sb-refresh-token";
+
+export const CALLBACK_PATH = "/api/auth/callback";
+
+export const TURNSTILE_VERIFY = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
+
+export const STORAGE_BUCKET = 'documents'; 
+export const SIGNED_URL_EXPIRES_IN = 3600; 
+
+
+export interface PackageDetail {
+  id: string; // e.g., "1", "2", "3"
+  name: string; // "Basic", "Standard", "Premium"
+  pricePerPage: number; // Price in smallest currency unit (e.g., IDR 50000)
+  turnaroundDays: number; // e.g., 7, 3, 1
+  description?: string; // Optional
+}
+
+export const PACKAGES_DETAILS: PackageDetail[] = [
+  { id: "1", name: "Basic", pricePerPage: 50000, turnaroundDays: 7, description: "Most economical option." },
+  { id: "2", name: "Standard", pricePerPage: 75000, turnaroundDays: 3, description: "Balanced speed and cost." },
+  { id: "3", name: "Premium", pricePerPage: 100000, turnaroundDays: 1, description: "Fastest turnaround." },
+];
+
+export const PACKAGE_MAP: { [key: string]: string } = PACKAGES_DETAILS.reduce((acc, pkg) => {
+  acc[pkg.id] = pkg.name;
+  return acc;
+}, {} as { [key: string]: string });
+
+export const PACKAGES_DETAILS_MAP: Record<string, PackageDetail> = PACKAGES_DETAILS.reduce((acc, pkg) => {
+  acc[pkg.id] = pkg;
+  return acc;
+}, {} as Record<string, PackageDetail>);
+```
+---
+
+`src/utils/dateUtils.ts`:
+```
+// src/utils/dateUtils.ts
+export const formatDate = (dateString: string | null | undefined): string => {
+    if (!dateString) return 'N/A';
+    try {
+        return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(dateString));
+    } catch {
+        return dateString;
+    }
+}
+
+export function calculateEstimatedDeliveryDate(turnaroundDays: number): Date {
+    const now = new Date();
+    now.setDate(now.getDate() + turnaroundDays);
+    return now;
+}
+```
+---
+
+`src/utils/filenameUtils.ts`:
+```
+export function sanitizeFilename(filename: string): string {
+
+  let sanitized = filename.replace(/[\s<>:"/\\|?*]+/g, '_');
+
+  sanitized = sanitized.replace(/^[_.]+|[_.]+$/g, '');
+
+  const maxLength = 100;
+  if (sanitized.length > maxLength) {
+    const extDotIndex = sanitized.lastIndexOf('.');
+    if (extDotIndex > 0 && extDotIndex > sanitized.length - 10) { 
+      const name = sanitized.substring(0, extDotIndex);
+      const ext = sanitized.substring(extDotIndex);
+
+      const maxNameLength = Math.max(0, maxLength - ext.length);
+      sanitized = name.substring(0, maxNameLength) + ext;
+    } else {
+
+      sanitized = sanitized.substring(0, maxLength);
+    }
+  }
+
+  if (!sanitized) {
+    return 'untitled';
+  }
+  return sanitized;
+}
+
+export function extractFilename(path: string | null | undefined): string | null {
+    if (!path) return null;
+    try {
+
+        const decodedPath = decodeURIComponent(path);
+
+        return decodedPath.split('/').pop() || decodedPath;
+    } catch (e) {
+        console.warn(`Failed to decode or extract filename from path: ${path}`, e);
+
+        return path.split('/').pop() || path;
+    }
+}
+
+export const generateRandomSuffix = (length = 6): string => {
+    const characters = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    let result = '';
+    for (let i = 0; i < length; i++) {
+        result += characters.charAt(Math.floor(Math.random() * characters.length));
+    }
+    return result;
+}
+```
+---
+
+`src/utils/storageUtils.ts`:
+```
+import { supabaseAdmin } from "../lib/supabaseAdmin";
+import { SIGNED_URL_EXPIRES_IN, STORAGE_BUCKET } from "./constants";
+import { extractFilename, sanitizeFilename, generateRandomSuffix } from "./filenameUtils";
+import type { SignedFileInfo, Order } from '../schemas/order.schema';
+
+export async function createSignedUrlForPath(path: string | null | undefined): Promise<SignedFileInfo | null> {
+    if (!path) return null;
+
+    const filename = extractFilename(path);
+    try {
+        const { data, error } = await supabaseAdmin.storage
+            .from(STORAGE_BUCKET)
+            .createSignedUrl(path, SIGNED_URL_EXPIRES_IN);
+
+        if (error) {
+            console.error(`Storage Util Error: Failed to create signed URL for path "${path}":`, error.message);
+
+            return { path, filename, signedUrl: null };
+        }
+
+        return { path, filename, signedUrl: data?.signedUrl || null };
+
+    } catch (e: any) {
+        console.error(`Storage Util Exception: Unexpected error signing URL for path "${path}":`, e.message);
+        return { path, filename, signedUrl: null }; 
+    }
+}
+
+export type ApiOrderResponse = Partial<Order> & {
+    uploaded_files_info?: (SignedFileInfo | null)[]; 
+    certificate_info?: SignedFileInfo | null;
+    translated_file_info?: SignedFileInfo | null;
+
+};
+
+export async function enrichOrderWithSignedUrls(orderData: Order): Promise<ApiOrderResponse> {
+     if (!orderData) {
+
+        console.error("enrichOrderWithSignedUrls called with null/undefined orderData");
+        return {};
+     }
+
+    const uploadedFilesInfoPromises = (orderData.uploaded_file_urls || [])
+        .map((path: string) => createSignedUrlForPath(path));
+
+    const [
+        uploadedFilesInfoResults,
+        certificateInfoResult,
+        translatedFileInfoResult
+    ] = await Promise.all([
+        Promise.all(uploadedFilesInfoPromises),
+        createSignedUrlForPath(orderData.certificate_url),
+        createSignedUrlForPath(orderData.translated_file_url),
+    ]);
+
+    const responseData: ApiOrderResponse = {
+        ...orderData,
+        uploaded_files_info: uploadedFilesInfoResults, 
+        certificate_info: certificateInfoResult,
+        translated_file_info: translatedFileInfoResult,
+
+        uploaded_file_urls: undefined,
+        certificate_url: undefined,
+        translated_file_url: undefined,
+    };
+
+    delete responseData.uploaded_file_urls;
+    delete responseData.certificate_url;
+    delete responseData.translated_file_url;
+
+    return responseData;
+}
+
+interface GenerateStoragePathOptions {
+    userId: string;
+    filename: string;
+    type: 'original' | 'certificate' | 'translation';
+    orderId?: number | string; 
+    timestamp?: number; 
+}
+
+export function generateStoragePath(options: GenerateStoragePathOptions): string {
+    const { userId, filename, type, orderId, timestamp = Date.now() } = options;
+
+    if (!userId || !filename) {
+        throw new Error("generateStoragePath requires userId and filename.");
+    }
+
+    const sanitizedName = sanitizeFilename(filename);
+    const randomSuffix = generateRandomSuffix();
+
+    switch (type) {
+        case 'original':
+
+            return `${userId}/originals/${timestamp}-${randomSuffix}-${sanitizedName}`;
+        case 'certificate':
+
+            return `${userId}/certificates/${timestamp}-cert-${randomSuffix}-${sanitizedName}`;
+        case 'translation':
+            if (!orderId) {
+                 throw new Error("generateStoragePath requires orderId for type 'translation'.");
+            }
+
+            return `${userId}/translations/order_${orderId}-${timestamp}-${randomSuffix}-${sanitizedName}`;
+        default:
+
+             console.warn(`generateStoragePath called with unknown type: ${type}. Using generic path.`);
+             return `${userId}/uploads/${timestamp}-${randomSuffix}-${sanitizedName}`;
+    }
+}
+```
+---
+
+`src/utils/supabaseUtils.ts`:
+```
+import type { PostgrestError } from '@supabase/supabase-js';
+import { supabase } from '../lib/supabase';
+import { STORAGE_BUCKET } from './constants';
+import type { Order } from '../schemas/order.schema';
+
+export function handleSupabaseError(error: PostgrestError | null | undefined, context: string): void {
+  if (!error) {
+    return;
+  }
+
+  console.error(`Service Error (${context}):`, error);
+
+  if (error.code === '42501') {
+    throw new Error(`Permission Denied: Cannot ${context}. Check RLS policies.`);
+  }
+
+  throw new Error(`Database Error: Failed to ${context}: ${error.message}`);
+}
+
+export async function enrichUserOrderWithSignedUrls(order: Order) {
+  const { data: uploadedFiles } = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .createSignedUrls(order.uploaded_file_urls || [], 60 * 60); // 1hr expiry
+
+  let certificate_info = null;
+  if (order.certificate_url) {
+      const { data: certificate } = await supabase.storage
+          .from(STORAGE_BUCKET)
+          .createSignedUrl(order.certificate_url, 60 * 60) as { data: { signedUrl: string } | null };
+      certificate_info = certificate ? { url: certificate.signedUrl } : null;
+  }
+
+  return {
+      ...order,
+      uploaded_files_info: (uploadedFiles || []).map((file: { signedUrl: string }) => ({ url: file.signedUrl })),
+      certificate_info
+  };
+}
+```
+---
+
+`src/utils/turnstile.ts`:
+```
+import { TURNSTILE_VERIFY } from './constants'; 
+import { jsonErrorResponse } from './apiResponse'; 
+
+const TURNSTILE_SECRET_KEY = import.meta.env.TURNSTILE_SECRET_KEY;
+
+export async function verifyTurnstileToken(token: string, remoteIp?: string): Promise<void> {
+    if (!TURNSTILE_SECRET_KEY) {
+        console.error("Turnstile Verification Error: TURNSTILE_SECRET_KEY is not set.");
+
+        throw new Error("Server configuration error: CAPTCHA secret missing.");
+    }
+
+    if (!token) {
+         throw new Error("CAPTCHA token is missing."); 
+    }
+
+    console.log("Util: Verifying Turnstile token...");
+    const verifyPayload = new URLSearchParams();
+    verifyPayload.append('secret', TURNSTILE_SECRET_KEY);
+    verifyPayload.append('response', token);
+
+    if (remoteIp) {
+        verifyPayload.append('remoteip', remoteIp);
+        console.log("Util: Verifying Turnstile with remoteip:", remoteIp);
+    } else {
+        console.warn("Util: Verifying Turnstile without remoteip.");
+    }
+
+    try {
+        const verifyResponse = await fetch(TURNSTILE_VERIFY, {
+            method: 'POST',
+            body: verifyPayload,
+        });
+
+        if (!verifyResponse.ok) {
+
+             throw new Error(`Turnstile endpoint returned status ${verifyResponse.status}`);
+        }
+
+        const verifyOutcome = await verifyResponse.json();
+        console.log("Util: Turnstile verification outcome:", verifyOutcome);
+
+        if (!verifyOutcome.success) {
+
+            throw new Error(`Verification failed. Codes: ${(verifyOutcome['error-codes'] || []).join(', ')}`);
+        }
+
+        console.log("Util: Turnstile verification successful for hostname:", verifyOutcome.hostname);
+
+    } catch (error: any) {
+        console.error("Util Error: Exception during Turnstile verification fetch:", error);
+
+        throw new Error(`Server error during CAPTCHA verification: ${error.message}`);
+    }
+}
 ```
 ---
